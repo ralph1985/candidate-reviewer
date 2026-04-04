@@ -41,6 +41,12 @@ Fases (si necesitas aplicar de forma incremental):
 docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_review_phases.sql
 ```
 
+Skills y fases dinámicas (incremental):
+
+```bash
+docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_review_skills.sql
+```
+
 ## Datos ficticios
 
 Las revisiones de demo se marcan con prefijo `[FAKE]` en `candidate_name`.

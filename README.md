@@ -12,7 +12,8 @@ Aplicación web para revisar pruebas técnicas de candidatos con ejecución auto
 ## Estado actual
 
 - Gestión de revisiones (`create`, `list`, `update`).
-- Ejecución automática por fases (`architecture`, `tests`, `security`, `documentation`).
+- Gestión de skills/fases desde UI (key, nombre, prompt, activo, orden).
+- Ejecución automática por fases leyendo skills activas desde PostgreSQL.
 - Persistencia detallada de resultados por fase.
 - Integración base con Codex CLI (con fallback heurístico si falla o no está autenticado).
 

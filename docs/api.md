@@ -83,6 +83,44 @@ Respuesta (ejemplo):
 ]
 ```
 
+## Skills
+
+### Listar skills
+
+`GET /api/skills`
+
+### Crear skill
+
+`POST /api/skills`
+
+Body:
+
+```json
+{
+  "key": "architecture",
+  "name": "Arquitectura",
+  "description": "Opcional",
+  "promptTemplate": "Prompt que se enviará a Codex",
+  "active": true,
+  "sortOrder": 10
+}
+```
+
+### Actualizar skill
+
+`PATCH /api/skills/:id`
+
+Body (todo opcional):
+
+```json
+{
+  "name": "Arquitectura y diseño",
+  "promptTemplate": "Nuevo prompt",
+  "active": true,
+  "sortOrder": 15
+}
+```
+
 ## Códigos de error comunes
 
 - `400`: parámetros inválidos.

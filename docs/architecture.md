@@ -15,6 +15,7 @@
 3. Base de datos (PostgreSQL)
 - Tabla `reviews` para estado global.
 - Tabla `review_phase_results` para detalle por fase.
+- Tabla `review_skills` para definir fases/prompt administrables.
 
 4. Infraestructura
 - Contenedor único para app (frontend estático servido por backend).
@@ -26,9 +27,10 @@
 1. Usuario crea revisión (`POST /api/reviews`).
 2. Usuario lanza ejecución (`POST /api/reviews/:id/run`).
 3. Backend marca revisión en `running` y limpia fases previas.
-4. Runner clona repo y evalúa fases en secuencia.
-5. Cada fase se persiste en `review_phase_results`.
-6. Al terminar, backend actualiza `reviews` con score global, informe y recomendación.
+4. Backend carga skills activas de `review_skills` (ordenadas).
+5. Runner clona repo y evalúa esas fases en secuencia.
+6. Cada fase se persiste en `review_phase_results`.
+7. Al terminar, backend actualiza `reviews` con score global, informe y recomendación.
 
 ## Estrategia de motor
 

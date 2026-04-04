@@ -3,7 +3,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { pool } from './db';
-import { runPhasedReview, type ReviewPhaseKey } from './review-runner';
+import { runPhasedReview, type ReviewSkillDefinition } from './review-runner';
 
 type ReviewStatus = 'pending' | 'running' | 'done' | 'failed';
 type Recommendation = 'apto' | 'no_apto' | 'pendiente';
@@ -11,7 +11,7 @@ type Recommendation = 'apto' | 'no_apto' | 'pendiente';
 async function upsertPhaseResult(
   reviewId: number,
   phase: {
-    phaseKey: ReviewPhaseKey;
+    phaseKey: string;
     status: 'done' | 'failed';
     score: number | null;
     summary: string;
@@ -49,11 +49,28 @@ async function upsertPhaseResult(
   );
 }
 
+async function loadActiveSkills(): Promise<ReviewSkillDefinition[]> {
+  const result = await pool.query(
+    `SELECT key, name, prompt_template
+     FROM review_skills
+     WHERE active = true
+     ORDER BY sort_order ASC, id ASC`
+  );
+
+  return result.rows.map((row) => ({
+    key: String(row.key),
+    name: String(row.name),
+    promptTemplate: String(row.prompt_template)
+  }));
+}
+
 async function executeReviewJob(id: number, githubUrl: string): Promise<void> {
   try {
-    const result = await runPhasedReview(githubUrl, async (phase) => {
+    const skills = await loadActiveSkills();
+    const result = await runPhasedReview(githubUrl, skills, async (phase) => {
       await upsertPhaseResult(id, phase);
     });
+
     await pool.query(
       `UPDATE reviews
        SET status = 'done',
@@ -98,6 +115,100 @@ app.get('/api/reviews', async (_, reply) => {
      LIMIT 200`
   );
   return reply.send(result.rows);
+});
+
+app.get('/api/skills', async (_, reply) => {
+  const result = await pool.query(
+    `SELECT id, key, name, description, prompt_template, active, sort_order, created_at, updated_at
+     FROM review_skills
+     ORDER BY sort_order ASC, id ASC`
+  );
+  return reply.send(result.rows);
+});
+
+app.post<{
+  Body: {
+    key?: string;
+    name?: string;
+    description?: string;
+    promptTemplate?: string;
+    active?: boolean;
+    sortOrder?: number;
+  };
+}>('/api/skills', async (request, reply) => {
+  const key = request.body?.key?.trim();
+  const name = request.body?.name?.trim();
+  const description = request.body?.description?.trim() || null;
+  const promptTemplate = request.body?.promptTemplate?.trim();
+  const active = request.body?.active ?? true;
+  const sortOrder = Number.isInteger(request.body?.sortOrder) ? Number(request.body?.sortOrder) : 100;
+
+  if (!key || !/^[a-z0-9_-]+$/i.test(key)) {
+    return reply.code(400).send({ error: 'key inválida (usa letras, números, _ o -)' });
+  }
+  if (!name) {
+    return reply.code(400).send({ error: 'name es obligatorio' });
+  }
+  if (!promptTemplate) {
+    return reply.code(400).send({ error: 'promptTemplate es obligatorio' });
+  }
+
+  const result = await pool.query(
+    `INSERT INTO review_skills (key, name, description, prompt_template, active, sort_order)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, key, name, description, prompt_template, active, sort_order, created_at, updated_at`,
+    [key, name, description, promptTemplate, active, sortOrder]
+  );
+
+  return reply.code(201).send(result.rows[0]);
+});
+
+app.patch<{
+  Params: { id: string };
+  Body: {
+    key?: string;
+    name?: string;
+    description?: string;
+    promptTemplate?: string;
+    active?: boolean;
+    sortOrder?: number;
+  };
+}>('/api/skills/:id', async (request, reply) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return reply.code(400).send({ error: 'id inválido' });
+  }
+
+  const key = request.body?.key?.trim();
+  const name = request.body?.name?.trim();
+  const description = request.body?.description?.trim();
+  const promptTemplate = request.body?.promptTemplate?.trim();
+  const active = typeof request.body?.active === 'boolean' ? request.body.active : null;
+  const sortOrder = Number.isInteger(request.body?.sortOrder) ? Number(request.body?.sortOrder) : null;
+
+  if (key && !/^[a-z0-9_-]+$/i.test(key)) {
+    return reply.code(400).send({ error: 'key inválida (usa letras, números, _ o -)' });
+  }
+
+  const result = await pool.query(
+    `UPDATE review_skills
+     SET
+       key = COALESCE($2, key),
+       name = COALESCE($3, name),
+       description = COALESCE($4, description),
+       prompt_template = COALESCE($5, prompt_template),
+       active = COALESCE($6, active),
+       sort_order = COALESCE($7, sort_order)
+     WHERE id = $1
+     RETURNING id, key, name, description, prompt_template, active, sort_order, created_at, updated_at`,
+    [id, key ?? null, name ?? null, description ?? null, promptTemplate ?? null, active, sortOrder]
+  );
+
+  if (result.rowCount === 0) {
+    return reply.code(404).send({ error: 'skill no encontrada' });
+  }
+
+  return reply.send(result.rows[0]);
 });
 
 app.get<{ Params: { id: string } }>('/api/reviews/:id', async (request, reply) => {
@@ -243,8 +354,23 @@ app.post<{ Params: { id: string } }>('/api/reviews/:id/run', async (request, rep
   return reply.code(202).send({ ok: true, id, status: 'running' });
 });
 
+async function recoverStaleRunningReviews(): Promise<void> {
+  const result = await pool.query(
+    `UPDATE reviews
+     SET status = 'failed',
+         final_report = 'Revisión interrumpida por reinicio del servicio. Vuelve a lanzar la ejecución.',
+         recommendation = 'pendiente',
+         finished_at = NOW()
+     WHERE status = 'running'`
+  );
+  if (result.rowCount && result.rowCount > 0) {
+    app.log.warn({ recovered: result.rowCount }, 'Revisiones en running recuperadas como failed');
+  }
+}
+
 async function start() {
   try {
+    await recoverStaleRunningReviews();
     await app.listen({ port, host: '0.0.0.0' });
   } catch (error) {
     app.log.error(error);
