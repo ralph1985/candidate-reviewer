@@ -82,4 +82,3 @@ Nueva tabla `review_phase_results`:
 - [x] Ejecución real de tests (Node) con logs en fase `tests`
 - [ ] Robustecer prompt/parseo y politicas de reintento para produccion
 - [ ] Configurar auth de Codex CLI en contenedor y validar `engine=codex-cli`
-- [ ] Extender ejecución de tests a otros stacks (Python/Java/etc.) con aislamiento adicional
