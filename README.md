@@ -21,6 +21,8 @@ Aplicación web para revisar pruebas técnicas de candidatos con ejecución auto
 - Gestión de skills/fases desde UI (key, nombre, prompt, activo, orden).
 - Ejecución automática por fases leyendo skills activas desde PostgreSQL.
 - Persistencia detallada de resultados por fase.
+- Workspace persistente por revisión en contenedor (`/var/candidate-reviewer/workspaces/review-<id>` por defecto).
+- Preflight de seguridad antes de instalación de dependencias y ejecución real de tests en fase `tests`.
 - Integración base con Codex CLI (con fallback heurístico si falla o no está autenticado).
 
 ## Inicio rápido

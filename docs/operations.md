@@ -12,6 +12,9 @@ Variables clave:
 - `CODEX_CLI_BIN`
 - `CODEX_CLI_ARGS`
 - `CODEX_CLI_TIMEOUT_MS`
+- `REVIEW_WORKSPACES_ROOT`
+- `REVIEW_WORKSPACE_CLEANUP_AFTER_RUN`
+- `REVIEW_TEST_TIMEOUT_MS`
 
 ## Levantar servicio
 
@@ -62,6 +65,12 @@ Skills y fases dinámicas (incremental):
 docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_review_skills.sql
 ```
 
+Reordenar skills por defecto para ejecutar `security` antes de `tests`:
+
+```bash
+docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/reorder_security_before_tests.sql
+```
+
 ## Datos ficticios
 
 Las revisiones de demo se marcan con prefijo `[FAKE]` en `candidate_name`.
@@ -83,7 +92,12 @@ docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/delet
 - Comprobar auth de Codex CLI dentro del contenedor.
 - Revisar `details.codexError` en `review_phase_results`.
 
-3. Error al cargar revisiones desde `/cr/`.
+3. No se ejecutan tests.
+- Revisar fase `tests` en `review_phase_results.details.execution`.
+- Verificar que el repo tiene `package.json` con script `test`.
+- Revisar bloqueos de preflight en `details.securityPreflight.blockedReasons`.
+
+4. Error al cargar revisiones desde `/cr/`.
 - Verificar que frontend usa base path `/cr`.
 - Verificar carga de CSS en `GET /cr/_astro/*.css`.
 - Probar `GET /cr/api/reviews` desde proxy.

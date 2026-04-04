@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -35,6 +35,10 @@ type Scores = {
   [phaseKey: string]: number;
 };
 
+export type RunnerContext = {
+  reviewId?: number;
+};
+
 export type PhasedReviewResult = {
   phases: Array<{
     phaseKey: string;
@@ -49,6 +53,23 @@ export type PhasedReviewResult = {
   scores: Scores;
   recommendation: Recommendation;
   finalReport: string;
+};
+
+type SecurityPreflightResult = {
+  ok: boolean;
+  score: number;
+  findings: string[];
+  blockedReasons: string[];
+};
+
+type TestExecutionResult = {
+  detected: boolean;
+  ran: boolean;
+  passed: boolean | null;
+  installCommand: string | null;
+  testCommand: string | null;
+  output: string;
+  reason: string;
 };
 
 const SOURCE_EXTENSIONS = new Set([
@@ -106,6 +127,20 @@ function codexCliArgs(): string[] {
 function codexCliTimeoutMs(): number {
   const raw = Number(process.env.CODEX_CLI_TIMEOUT_MS || 15000);
   if (!Number.isFinite(raw) || raw <= 0) return 15000;
+  return raw;
+}
+
+function reviewWorkspaceRoot(): string {
+  return process.env.REVIEW_WORKSPACES_ROOT || '/var/candidate-reviewer/workspaces';
+}
+
+function workspaceCleanupEnabled(): boolean {
+  return process.env.REVIEW_WORKSPACE_CLEANUP_AFTER_RUN === 'true';
+}
+
+function testsTimeoutMs(): number {
+  const raw = Number(process.env.REVIEW_TEST_TIMEOUT_MS || 300000);
+  if (!Number.isFinite(raw) || raw <= 0) return 300000;
   return raw;
 }
 
@@ -206,7 +241,6 @@ function heuristicScoreByPhase(phaseKey: string, metrics: RepoMetrics): number {
   if (phaseKey === 'security') return scoreSecurity(metrics);
   if (phaseKey === 'documentation') return scoreDocumentation(metrics);
 
-  // Fase personalizada: media estructural simple.
   return scoreClamp((scoreArchitecture(metrics) + scoreTests(metrics) + scoreSecurity(metrics) + scoreDocumentation(metrics)) / 4);
 }
 
@@ -282,6 +316,190 @@ async function readFileIfExists(filePath: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+function capOutput(text: string, max = 12000): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}\n... [output truncated ${text.length - max} chars]`;
+}
+
+async function detectNodeProject(repoPath: string): Promise<{
+  exists: boolean;
+  packageJson: Record<string, unknown> | null;
+}> {
+  const content = await readFileIfExists(path.join(repoPath, 'package.json'));
+  if (!content) return { exists: false, packageJson: null };
+
+  try {
+    const parsed = JSON.parse(content) as Record<string, unknown>;
+    return { exists: true, packageJson: parsed };
+  } catch {
+    return { exists: true, packageJson: null };
+  }
+}
+
+async function runSecurityPreflight(repoPath: string): Promise<SecurityPreflightResult> {
+  const findings: string[] = [];
+  const blockedReasons: string[] = [];
+  let score = 10;
+
+  const { exists, packageJson } = await detectNodeProject(repoPath);
+
+  if (exists) {
+    if (!packageJson) {
+      score -= 3;
+      findings.push('package.json no es JSON válido');
+      blockedReasons.push('No se puede evaluar scripts/dependencias por package.json inválido');
+    } else {
+      const scripts = (packageJson.scripts && typeof packageJson.scripts === 'object' ? packageJson.scripts : {}) as Record<string, unknown>;
+      const dangerousScriptPattern = /(curl|wget|nc\s|ncat|bash\s+-c|sh\s+-c|powershell|invoke-webrequest|chmod\s+\+x|\/dev\/tcp|base64\s+-d)/i;
+
+      for (const [name, raw] of Object.entries(scripts)) {
+        if (typeof raw !== 'string') continue;
+        if (dangerousScriptPattern.test(raw)) {
+          score -= 4;
+          findings.push(`script potencialmente peligroso: ${name}`);
+          blockedReasons.push(`script ${name} contiene comandos de red/ejecución de alto riesgo`);
+        }
+      }
+
+      const depSections = ['dependencies', 'devDependencies', 'optionalDependencies'];
+      for (const section of depSections) {
+        const deps = (packageJson[section] && typeof packageJson[section] === 'object' ? packageJson[section] : {}) as Record<string, unknown>;
+        for (const [dep, version] of Object.entries(deps)) {
+          if (typeof version !== 'string') continue;
+          if (version.startsWith('git+') || version.startsWith('http:') || version.startsWith('https:') || version.startsWith('file:')) {
+            score -= 1;
+            findings.push(`dependencia no-registry en ${section}: ${dep}`);
+          }
+        }
+      }
+    }
+  }
+
+  const ok = blockedReasons.length === 0;
+  return { ok, score: scoreClamp(score), findings, blockedReasons };
+}
+
+async function runCommandInRepo(
+  repoPath: string,
+  command: string,
+  timeout: number,
+  extraEnv: Record<string, string>
+): Promise<{ ok: boolean; output: string; errorMessage: string | null }> {
+  let stdout = '';
+  let stderr = '';
+  let errorMessage: string | null = null;
+
+  try {
+    const result = await execFileAsync('bash', ['-lc', command], {
+      cwd: repoPath,
+      timeout,
+      maxBuffer: 6 * 1024 * 1024,
+      env: { ...process.env, CI: '1', ...extraEnv }
+    });
+    stdout = result.stdout || '';
+    stderr = result.stderr || '';
+  } catch (error) {
+    const typed = error as { stdout?: string; stderr?: string; message?: string };
+    stdout = typed.stdout || '';
+    stderr = typed.stderr || '';
+    errorMessage = typed.message || 'command failed';
+  }
+
+  return {
+    ok: !errorMessage,
+    output: capOutput([stdout, stderr].filter(Boolean).join('\n').trim()),
+    errorMessage
+  };
+}
+
+async function runTestsIfAvailable(repoPath: string, security: SecurityPreflightResult): Promise<TestExecutionResult> {
+  const node = await detectNodeProject(repoPath);
+  if (!node.exists || !node.packageJson) {
+    return {
+      detected: false,
+      ran: false,
+      passed: null,
+      installCommand: null,
+      testCommand: null,
+      output: '',
+      reason: 'No se detectó proyecto Node ejecutable por este runner (sin package.json válido).'
+    };
+  }
+
+  if (!security.ok) {
+    return {
+      detected: true,
+      ran: false,
+      passed: null,
+      installCommand: null,
+      testCommand: null,
+      output: '',
+      reason: `Ejecución bloqueada por seguridad previa: ${security.blockedReasons.join('; ')}`
+    };
+  }
+
+  const scripts = (node.packageJson.scripts && typeof node.packageJson.scripts === 'object' ? node.packageJson.scripts : {}) as Record<string, unknown>;
+  const testScript = scripts.test;
+  if (typeof testScript !== 'string' || !testScript.trim() || /no test specified/i.test(testScript)) {
+    return {
+      detected: true,
+      ran: false,
+      passed: null,
+      installCommand: null,
+      testCommand: null,
+      output: '',
+      reason: 'No hay script de test útil en package.json.'
+    };
+  }
+
+  const hasPnpm = await stat(path.join(repoPath, 'pnpm-lock.yaml')).then(() => true).catch(() => false);
+  const hasYarn = await stat(path.join(repoPath, 'yarn.lock')).then(() => true).catch(() => false);
+  const hasNpmLock = await stat(path.join(repoPath, 'package-lock.json')).then(() => true).catch(() => false);
+
+  let installCommand = 'npm install --ignore-scripts';
+  let testCommand = 'npm test';
+
+  if (hasPnpm) {
+    installCommand = 'pnpm install --frozen-lockfile --ignore-scripts';
+    testCommand = 'pnpm test';
+  } else if (hasYarn) {
+    installCommand = 'yarn install --frozen-lockfile --ignore-scripts';
+    testCommand = 'yarn test';
+  } else if (hasNpmLock) {
+    installCommand = 'npm ci --ignore-scripts';
+  }
+
+  const secureInstallEnv = {
+    npm_config_ignore_scripts: 'true',
+    YARN_ENABLE_SCRIPTS: 'false',
+    PNPM_IGNORE_SCRIPTS: 'true'
+  };
+
+  const installResult = await runCommandInRepo(repoPath, installCommand, testsTimeoutMs(), secureInstallEnv);
+  if (!installResult.ok) {
+    return {
+      detected: true,
+      ran: false,
+      passed: false,
+      installCommand,
+      testCommand,
+      output: installResult.output,
+      reason: `Falló la instalación segura de dependencias: ${installResult.errorMessage || 'error desconocido'}`
+    };
+  }
+
+  const testResult = await runCommandInRepo(repoPath, testCommand, testsTimeoutMs(), {});
+  return {
+    detected: true,
+    ran: true,
+    passed: testResult.ok,
+    installCommand,
+    testCommand,
+    output: testResult.output,
+    reason: testResult.ok ? 'Tests ejecutados correctamente.' : `Tests con fallo: ${testResult.errorMessage || 'error desconocido'}`
+  };
 }
 
 type CodexExecResult = {
@@ -362,26 +580,39 @@ async function runCodexPhase(
   return { ...parsed, rawOutput: raw };
 }
 
-async function prepareRepository(githubUrl: string): Promise<{ tmpBase: string; repoPath: string; metrics: RepoMetrics }> {
+async function prepareRepository(
+  githubUrl: string,
+  context?: RunnerContext
+): Promise<{ workspacePath: string; metrics: RepoMetrics; cleanupOnExit: boolean }> {
   if (!isGithubUrl(githubUrl)) {
     throw new Error('La URL del repositorio debe ser de GitHub y usar http/https');
   }
 
-  const tmpBase = await mkdtemp(path.join(os.tmpdir(), 'candidate-review-'));
-  const repoPath = path.join(tmpBase, 'repo');
+  let workspacePath: string;
+  let cleanupOnExit = false;
 
-  await execFileAsync('git', ['clone', '--depth', '1', githubUrl, repoPath], {
+  if (context?.reviewId && Number.isInteger(context.reviewId) && context.reviewId > 0) {
+    await mkdir(reviewWorkspaceRoot(), { recursive: true });
+    workspacePath = path.join(reviewWorkspaceRoot(), `review-${context.reviewId}`);
+    await rm(workspacePath, { recursive: true, force: true });
+  } else {
+    const tmpBase = await mkdtemp(path.join(os.tmpdir(), 'candidate-review-'));
+    workspacePath = path.join(tmpBase, 'repo');
+    cleanupOnExit = true;
+  }
+
+  await execFileAsync('git', ['clone', '--depth', '1', githubUrl, workspacePath], {
     timeout: 180000,
     maxBuffer: 2 * 1024 * 1024
   });
 
-  const repoStat = await stat(repoPath);
+  const repoStat = await stat(workspacePath);
   if (!repoStat.isDirectory()) {
     throw new Error('No se pudo preparar el repositorio para revision');
   }
 
-  const files = await collectFilesRecursive(repoPath);
-  return { tmpBase, repoPath, metrics: buildMetrics(files) };
+  const files = await collectFilesRecursive(workspacePath);
+  return { workspacePath, metrics: buildMetrics(files), cleanupOnExit };
 }
 
 function buildFinalReport(phases: PhasedReviewResult['phases'], recommendation: Recommendation, promedio: number): string {
@@ -414,30 +645,89 @@ function computeRecommendation(scores: Scores): Recommendation {
   return scores.promedio >= 7 ? 'apto' : 'no_apto';
 }
 
+function mergeTestScore(baseScore: number, execution: TestExecutionResult): number {
+  if (!execution.detected) return baseScore;
+  if (!execution.ran) {
+    if (execution.passed === false) return Math.min(baseScore, 3);
+    return Math.min(baseScore, 5);
+  }
+  if (execution.passed) return Math.max(baseScore, 7);
+  return Math.min(baseScore, 4);
+}
+
 export async function runPhasedReview(
   githubUrl: string,
   phaseDefinitions: ReviewSkillDefinition[],
-  onPhase?: (phase: PhasedReviewResult['phases'][number]) => Promise<void> | void
+  onPhase?: (phase: PhasedReviewResult['phases'][number]) => Promise<void> | void,
+  context?: RunnerContext
 ): Promise<PhasedReviewResult> {
   const skills = phaseDefinitions.length > 0 ? phaseDefinitions : DEFAULT_SKILLS;
-  const { tmpBase, repoPath, metrics } = await prepareRepository(githubUrl);
+  const { workspacePath, metrics, cleanupOnExit } = await prepareRepository(githubUrl, context);
   const phases: PhasedReviewResult['phases'] = [];
+
+  let securityPreflight: SecurityPreflightResult | null = null;
 
   try {
     for (const skill of skills) {
       const startedAt = new Date();
 
+      let status: 'done' | 'failed' = 'done';
       let score: number | null = null;
       let summary = '';
-      let details: Record<string, unknown> = {};
+      let details: Record<string, unknown> = { workspacePath };
       let rawOutput: string | null = null;
 
-      if (codexCliEnabled()) {
+      if (skill.key === 'security') {
+        securityPreflight = await runSecurityPreflight(workspacePath);
+        score = securityPreflight.score;
+        summary = securityPreflight.ok
+          ? `Security preflight ${score}/10. Sin bloqueos críticos antes de instalación.`
+          : `Security preflight ${score}/10. Bloqueo preventivo antes de instalación: ${securityPreflight.blockedReasons.join('; ')}`;
+        details = {
+          ...details,
+          engine: 'security-preflight',
+          findings: securityPreflight.findings,
+          blockedReasons: securityPreflight.blockedReasons,
+          ok: securityPreflight.ok
+        };
+      } else if (skill.key === 'tests') {
+        if (!securityPreflight) {
+          securityPreflight = await runSecurityPreflight(workspacePath);
+        }
+
+        const execution = await runTestsIfAvailable(workspacePath, securityPreflight);
+        const heuristic = heuristicScoreByPhase(skill.key, metrics);
+        score = mergeTestScore(heuristic, execution);
+
+        if (!execution.detected) {
+          summary = `Tests ${score}/10. ${execution.reason}`;
+        } else if (!execution.ran) {
+          status = execution.passed === false ? 'failed' : 'done';
+          summary = `Tests ${score}/10. ${execution.reason}`;
+        } else {
+          status = execution.passed ? 'done' : 'failed';
+          summary = execution.passed
+            ? `Tests ${score}/10. Se ejecutaron tests y pasaron.`
+            : `Tests ${score}/10. Se ejecutaron tests y fallaron.`;
+        }
+
+        details = {
+          ...details,
+          engine: 'tests-exec',
+          securityPreflight: {
+            ok: securityPreflight.ok,
+            score: securityPreflight.score,
+            blockedReasons: securityPreflight.blockedReasons
+          },
+          execution
+        };
+        rawOutput = execution.output || null;
+      } else if (codexCliEnabled()) {
         try {
-          const codexResult = await runCodexPhase(skill, repoPath, metrics);
+          const codexResult = await runCodexPhase(skill, workspacePath, metrics);
           score = codexResult.score;
           summary = codexResult.summary;
-          details = { ...codexResult.details, engine: 'codex-cli' };
+          details = { ...details, ...codexResult.details, engine: 'codex-cli' };
           rawOutput = codexResult.rawOutput;
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'Codex CLI fallo';
@@ -445,6 +735,7 @@ export async function runPhasedReview(
           score = fallbackScore;
           summary = `${buildPhaseSummary(skill.key, fallbackScore, metrics)} Fallback heuristico por error en Codex CLI: ${reason}`;
           details = {
+            ...details,
             totalFiles: metrics.totalFiles,
             sourceFiles: metrics.sourceFiles,
             testFiles: metrics.testFiles,
@@ -457,6 +748,7 @@ export async function runPhasedReview(
         score = heuristicScore;
         summary = buildPhaseSummary(skill.key, heuristicScore, metrics);
         details = {
+          ...details,
           totalFiles: metrics.totalFiles,
           sourceFiles: metrics.sourceFiles,
           testFiles: metrics.testFiles,
@@ -467,7 +759,7 @@ export async function runPhasedReview(
       const finishedAt = new Date();
       const phase = {
         phaseKey: skill.key,
-        status: 'done' as const,
+        status,
         score,
         summary,
         details,
@@ -479,7 +771,9 @@ export async function runPhasedReview(
       if (onPhase) await onPhase(phase);
     }
   } finally {
-    await rm(tmpBase, { recursive: true, force: true });
+    if (cleanupOnExit || workspaceCleanupEnabled()) {
+      await rm(workspacePath, { recursive: true, force: true });
+    }
   }
 
   const scores = computeScores(phases);

@@ -67,9 +67,14 @@ async function loadActiveSkills(): Promise<ReviewSkillDefinition[]> {
 async function executeReviewJob(id: number, githubUrl: string): Promise<void> {
   try {
     const skills = await loadActiveSkills();
-    const result = await runPhasedReview(githubUrl, skills, async (phase) => {
-      await upsertPhaseResult(id, phase);
-    });
+    const result = await runPhasedReview(
+      githubUrl,
+      skills,
+      async (phase) => {
+        await upsertPhaseResult(id, phase);
+      },
+      { reviewId: id }
+    );
 
     await pool.query(
       `UPDATE reviews

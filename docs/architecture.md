@@ -30,17 +30,23 @@
 2. Usuario lanza ejecución (`POST /api/reviews/:id/run`).
 3. Backend marca revisión en `running` y limpia fases previas.
 4. Backend carga skills activas de `review_skills` (ordenadas).
-5. Runner clona repo y evalúa esas fases en secuencia.
-6. Cada fase se persiste en `review_phase_results`.
-7. Al terminar, backend actualiza `reviews` con score global, informe y recomendación.
+5. Runner clona repo en workspace persistente por review (`review-<id>`).
+6. Antes de instalar dependencias, ejecuta preflight de seguridad (bloquea si detecta riesgos críticos).
+7. Fase `tests`: instalación segura (`--ignore-scripts`) + ejecución real de tests cuando aplique.
+8. Runner evalúa el resto de fases en secuencia.
+9. Cada fase se persiste en `review_phase_results`.
+10. Al terminar, backend actualiza `reviews` con score global, informe y recomendación.
 
 ## Estrategia de motor
 
 - Si `CODEX_CLI_ENABLED=true`, intenta ejecutar Codex CLI por fase.
 - Si falla Codex (no binario, auth, timeout, parseo), aplica fallback heurístico y registra error en `details.codexError`.
+- La fase `tests` usa motor de ejecución de pruebas con logs en `raw_output`.
+- La fase `security` ejecuta preflight local antes de cualquier instalación.
 
 ## Decisiones técnicas
 
 - Persistencia incremental por fase para observabilidad de progreso.
+- Workspace persistente para reproducibilidad de revisiones.
 - Estado global separado de detalle por fase.
 - API simple para permitir futuras UIs más ricas sin cambios de backend.

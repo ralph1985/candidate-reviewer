@@ -102,18 +102,18 @@ VALUES
     10
   ),
   (
-    'tests',
-    'Tests',
-    'Revisión de estrategia y calidad de pruebas.',
-    'Analiza calidad de testing: cobertura funcional, claridad de tests, estrategia de pruebas, casos límite y señales de fragilidad.',
-    TRUE,
-    20
-  ),
-  (
     'security',
     'Seguridad',
     'Revisión de riesgos de seguridad y buenas prácticas.',
     'Analiza seguridad: manejo de secretos, validación de entradas, dependencias, hardening básico y riesgos potenciales.',
+    TRUE,
+    20
+  ),
+  (
+    'tests',
+    'Tests',
+    'Revisión de estrategia y calidad de pruebas.',
+    'Analiza calidad de testing: cobertura funcional, claridad de tests, estrategia de pruebas, casos límite y señales de fragilidad.',
     TRUE,
     30
   ),
