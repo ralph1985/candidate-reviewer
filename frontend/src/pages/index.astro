@@ -1,0 +1,320 @@
+---
+---
+
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Candidate Reviewer</title>
+    <style>
+      :root {
+        --bg: #f6f7fb;
+        --panel: #ffffff;
+        --text: #172033;
+        --muted: #61708c;
+        --line: #d9deea;
+        --primary: #0057d9;
+        --danger: #bf1f2f;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", "IBM Plex Sans", sans-serif;
+        color: var(--text);
+        background: radial-gradient(1000px 300px at 20% -50%, #d8e5ff 0%, transparent 60%), var(--bg);
+      }
+
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+
+      h1 {
+        margin: 0 0 4px;
+      }
+
+      p.sub {
+        margin: 0 0 24px;
+        color: var(--muted);
+      }
+
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+
+      form {
+        display: grid;
+        grid-template-columns: 1fr 1fr auto;
+        gap: 10px;
+      }
+
+      input, select, textarea, button {
+        font: inherit;
+      }
+
+      input, select, textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px;
+      }
+
+      textarea { min-height: 90px; }
+
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+
+      button.primary { background: var(--primary); color: white; }
+      button.secondary { background: #e8edf8; color: var(--text); }
+      button.danger { background: var(--danger); color: white; }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th, td {
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        padding: 10px 8px;
+        vertical-align: top;
+      }
+
+      .small {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: #e8edf8;
+        font-size: 12px;
+      }
+
+      .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      @media (max-width: 900px) {
+        form,
+        .grid-2 {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Candidate Reviewer</h1>
+      <p class="sub">MVP de revisiones técnicas automáticas</p>
+
+      <section>
+        <h2>Nueva revisión</h2>
+        <form id="create-form">
+          <input id="candidate-name" placeholder="Nombre candidato" required />
+          <input id="github-url" type="url" placeholder="https://github.com/org/repo" required />
+          <button class="primary" type="submit">Crear</button>
+        </form>
+        <p id="create-msg" class="small"></p>
+      </section>
+
+      <section>
+        <h2>Revisiones</h2>
+        <button class="secondary" id="refresh" type="button">Refrescar</button>
+        <div style="overflow:auto; margin-top: 10px;">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Candidato</th>
+                <th>Repositorio</th>
+                <th>Estado</th>
+                <th>Recomendación</th>
+                <th>Creado</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody id="reviews-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>Actualizar revisión</h2>
+        <div class="grid-2">
+          <input id="edit-id" type="number" min="1" placeholder="ID revisión" />
+          <select id="edit-status">
+            <option value="pending">pending</option>
+            <option value="running">running</option>
+            <option value="done">done</option>
+            <option value="failed">failed</option>
+          </select>
+          <select id="edit-recommendation">
+            <option value="pendiente">pendiente</option>
+            <option value="apto">apto</option>
+            <option value="no_apto">no_apto</option>
+          </select>
+          <input id="edit-scores" placeholder='{"arquitectura": 8, "tests": 7}' />
+        </div>
+        <textarea id="edit-report" placeholder="Informe final"></textarea>
+        <div style="margin-top: 10px; display:flex; gap:10px;">
+          <button class="primary" id="save-review" type="button">Guardar cambios</button>
+          <button class="danger" id="clear-form" type="button">Limpiar</button>
+        </div>
+        <p id="edit-msg" class="small"></p>
+      </section>
+    </main>
+
+    <script type="module">
+      const createForm = document.getElementById('create-form');
+      const createMsg = document.getElementById('create-msg');
+      const reviewsBody = document.getElementById('reviews-body');
+      const refreshBtn = document.getElementById('refresh');
+
+      const editId = document.getElementById('edit-id');
+      const editStatus = document.getElementById('edit-status');
+      const editRecommendation = document.getElementById('edit-recommendation');
+      const editScores = document.getElementById('edit-scores');
+      const editReport = document.getElementById('edit-report');
+      const saveReviewBtn = document.getElementById('save-review');
+      const clearFormBtn = document.getElementById('clear-form');
+      const editMsg = document.getElementById('edit-msg');
+
+      const fmtDate = (value) => value ? new Date(value).toLocaleString('es-ES') : '-';
+
+      async function loadReviews() {
+        reviewsBody.innerHTML = '<tr><td colspan="7" class="small">Cargando...</td></tr>';
+        try {
+          const response = await fetch('/api/reviews');
+          if (!response.ok) throw new Error('No se pudo cargar revisiones');
+          const data = await response.json();
+
+          if (!data.length) {
+            reviewsBody.innerHTML = '<tr><td colspan="7" class="small">Sin revisiones todavía.</td></tr>';
+            return;
+          }
+
+          reviewsBody.innerHTML = data.map((review) => `
+            <tr>
+              <td>${review.id}</td>
+              <td>${review.candidate_name}</td>
+              <td><a href="${review.github_url}" target="_blank" rel="noreferrer">repo</a></td>
+              <td><span class="pill">${review.status}</span></td>
+              <td>${review.recommendation}</td>
+              <td>${fmtDate(review.created_at)}</td>
+              <td><button data-fill="${review.id}" type="button">Editar</button></td>
+            </tr>
+          `).join('');
+
+          for (const btn of reviewsBody.querySelectorAll('button[data-fill]')) {
+            btn.addEventListener('click', async () => {
+              const id = Number(btn.getAttribute('data-fill'));
+              const response = await fetch(`/api/reviews/${id}`);
+              if (!response.ok) return;
+              const detail = await response.json();
+              editId.value = String(detail.id);
+              editStatus.value = detail.status;
+              editRecommendation.value = detail.recommendation;
+              editScores.value = detail.scores ? JSON.stringify(detail.scores) : '';
+              editReport.value = detail.final_report || '';
+              editMsg.textContent = `Formulario cargado para revisión #${id}`;
+            });
+          }
+        } catch (error) {
+          reviewsBody.innerHTML = '<tr><td colspan="7" class="small">Error cargando revisiones.</td></tr>';
+        }
+      }
+
+      createForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const candidateName = document.getElementById('candidate-name').value.trim();
+        const githubUrl = document.getElementById('github-url').value.trim();
+
+        createMsg.textContent = 'Guardando...';
+
+        const response = await fetch('/api/reviews', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ candidateName, githubUrl })
+        });
+
+        if (!response.ok) {
+          createMsg.textContent = 'No se pudo crear la revisión.';
+          return;
+        }
+
+        const created = await response.json();
+        createMsg.textContent = `Revisión #${created.id} creada.`;
+        createForm.reset();
+        await loadReviews();
+      });
+
+      refreshBtn.addEventListener('click', loadReviews);
+
+      saveReviewBtn.addEventListener('click', async () => {
+        const id = Number(editId.value);
+        if (!id) {
+          editMsg.textContent = 'Indica un ID válido.';
+          return;
+        }
+
+        let parsedScores = null;
+        if (editScores.value.trim()) {
+          try {
+            parsedScores = JSON.parse(editScores.value);
+          } catch {
+            editMsg.textContent = 'Scores no es JSON válido.';
+            return;
+          }
+        }
+
+        editMsg.textContent = 'Guardando cambios...';
+
+        const response = await fetch(`/api/reviews/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: editStatus.value,
+            recommendation: editRecommendation.value,
+            scores: parsedScores,
+            finalReport: editReport.value
+          })
+        });
+
+        if (!response.ok) {
+          editMsg.textContent = 'No se pudo actualizar la revisión.';
+          return;
+        }
+
+        editMsg.textContent = `Revisión #${id} actualizada.`;
+        await loadReviews();
+      });
+
+      clearFormBtn.addEventListener('click', () => {
+        editId.value = '';
+        editStatus.value = 'pending';
+        editRecommendation.value = 'pendiente';
+        editScores.value = '';
+        editReport.value = '';
+        editMsg.textContent = '';
+      });
+
+      loadReviews();
+    </script>
+  </body>
+</html>
