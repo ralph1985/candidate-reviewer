@@ -69,4 +69,5 @@ Nueva tabla `review_phase_results`:
 - [x] Runner por fases con persistencia incremental
 - [x] Endpoint para consultar fases
 - [x] UI para visualizar fases por revisión
-- [ ] Adaptador Codex CLI real por fase
+- [x] Adaptador base Codex CLI por fase (con fallback heuristico)
+- [ ] Robustecer prompt/parseo y politicas de reintento para produccion

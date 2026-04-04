@@ -60,6 +60,29 @@ function scoreClamp(value: number): number {
   return Math.max(0, Math.min(10, Math.round(value)));
 }
 
+function codexCliEnabled(): boolean {
+  return process.env.CODEX_CLI_ENABLED === 'true';
+}
+
+function codexCliBin(): string {
+  return process.env.CODEX_CLI_BIN || 'codex';
+}
+
+function codexCliArgs(): string[] {
+  const raw = process.env.CODEX_CLI_ARGS;
+  if (!raw) return ['exec'];
+  return raw
+    .split(' ')
+    .map((arg) => arg.trim())
+    .filter(Boolean);
+}
+
+function codexCliTimeoutMs(): number {
+  const raw = Number(process.env.CODEX_CLI_TIMEOUT_MS || 120000);
+  if (!Number.isFinite(raw) || raw <= 0) return 120000;
+  return raw;
+}
+
 function isGithubUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
@@ -183,7 +206,79 @@ function phaseScore(phaseKey: ReviewPhaseKey, metrics: RepoMetrics): number {
   return scoreDocumentation(metrics);
 }
 
-async function analyzeRepository(githubUrl: string): Promise<{ metrics: RepoMetrics }> {
+function codexPrompt(phaseKey: ReviewPhaseKey, metrics: RepoMetrics): string {
+  return [
+    'Eres un revisor tecnico de pruebas de candidatos.',
+    `Analiza la fase "${phaseKey}" del repositorio actual (cwd).`,
+    'Responde SOLO JSON valido sin markdown con este esquema exacto:',
+    '{"score": <0-10>, "summary": "<texto corto>", "details": {"strengths": ["..."], "risks": ["..."], "notes": ["..."]}}',
+    'Debes ser conciso y objetivo.',
+    `Contexto metricas: ${JSON.stringify({
+      totalFiles: metrics.totalFiles,
+      sourceFiles: metrics.sourceFiles,
+      testFiles: metrics.testFiles,
+      hasReadme: metrics.hasReadme,
+      hasDocsDir: metrics.hasDocsDir,
+      hasLicense: metrics.hasLicense,
+      hasCi: metrics.hasCi,
+      hasDocker: metrics.hasDocker,
+      hasLockfile: metrics.hasLockfile,
+      hasSecurityDocs: metrics.hasSecurityDocs,
+      hasTypeScript: metrics.hasTypeScript,
+      hasLintConfig: metrics.hasLintConfig,
+      hasSrcDir: metrics.hasSrcDir
+    })}`
+  ].join('\n');
+}
+
+function extractJsonPayload(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) return trimmed;
+
+  const fenced = trimmed.match(/```json\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) return fenced[1].trim();
+
+  const first = trimmed.indexOf('{');
+  const last = trimmed.lastIndexOf('}');
+  if (first >= 0 && last > first) return trimmed.slice(first, last + 1);
+  return null;
+}
+
+function parseCodexResponse(output: string): { score: number; summary: string; details: Record<string, unknown> } {
+  const payload = extractJsonPayload(output);
+  if (!payload) {
+    throw new Error('Codex CLI no devolvio JSON parseable');
+  }
+  const parsed = JSON.parse(payload) as { score?: unknown; summary?: unknown; details?: unknown };
+  const score = scoreClamp(Number(parsed.score));
+  const summary = typeof parsed.summary === 'string' ? parsed.summary : 'Sin resumen';
+  const details =
+    parsed.details && typeof parsed.details === 'object' && !Array.isArray(parsed.details)
+      ? (parsed.details as Record<string, unknown>)
+      : {};
+  return { score, summary, details };
+}
+
+async function runCodexPhase(
+  phaseKey: ReviewPhaseKey,
+  repoPath: string,
+  metrics: RepoMetrics
+): Promise<{ score: number; summary: string; details: Record<string, unknown>; rawOutput: string }> {
+  const prompt = codexPrompt(phaseKey, metrics);
+  const args = [...codexCliArgs(), prompt];
+  const { stdout, stderr } = await execFileAsync(codexCliBin(), args, {
+    cwd: repoPath,
+    timeout: codexCliTimeoutMs(),
+    maxBuffer: 2 * 1024 * 1024
+  });
+
+  const mergedOutput = [stdout, stderr].filter(Boolean).join('\n').trim();
+  const parsed = parseCodexResponse(mergedOutput);
+  return { ...parsed, rawOutput: mergedOutput };
+}
+
+async function prepareRepository(githubUrl: string): Promise<{ tmpBase: string; repoPath: string; metrics: RepoMetrics }> {
   if (!isGithubUrl(githubUrl)) {
     throw new Error('La URL del repositorio debe ser de GitHub y usar http/https');
   }
@@ -191,54 +286,87 @@ async function analyzeRepository(githubUrl: string): Promise<{ metrics: RepoMetr
   const tmpBase = await mkdtemp(path.join(os.tmpdir(), 'candidate-review-'));
   const repoPath = path.join(tmpBase, 'repo');
 
-  try {
-    await execFileAsync('git', ['clone', '--depth', '1', githubUrl, repoPath], {
-      timeout: 180000,
-      maxBuffer: 2 * 1024 * 1024
-    });
+  await execFileAsync('git', ['clone', '--depth', '1', githubUrl, repoPath], {
+    timeout: 180000,
+    maxBuffer: 2 * 1024 * 1024
+  });
 
-    const repoStat = await stat(repoPath);
-    if (!repoStat.isDirectory()) {
-      throw new Error('No se pudo preparar el repositorio para revisión');
-    }
-
-    const files = await collectFilesRecursive(repoPath);
-    return { metrics: buildMetrics(files) };
-  } finally {
-    await rm(tmpBase, { recursive: true, force: true });
+  const repoStat = await stat(repoPath);
+  if (!repoStat.isDirectory()) {
+    throw new Error('No se pudo preparar el repositorio para revision');
   }
+
+  const files = await collectFilesRecursive(repoPath);
+  return { tmpBase, repoPath, metrics: buildMetrics(files) };
 }
 
 export async function runPhasedReview(
   githubUrl: string,
   onPhase?: (phase: PhasedReviewResult['phases'][number]) => Promise<void> | void
 ): Promise<PhasedReviewResult> {
-  const { metrics } = await analyzeRepository(githubUrl);
+  const { tmpBase, repoPath, metrics } = await prepareRepository(githubUrl);
 
   const phases: PhasedReviewResult['phases'] = [];
 
-  for (const phaseKey of REVIEW_PHASE_KEYS) {
-    const startedAt = new Date();
-    const score = phaseScore(phaseKey, metrics);
-    const finishedAt = new Date();
-    const phase = {
-      phaseKey,
-      status: 'done' as const,
-      score,
-      summary: buildPhaseSummary(phaseKey, score, metrics),
-      details: {
-        totalFiles: metrics.totalFiles,
-        sourceFiles: metrics.sourceFiles,
-        testFiles: metrics.testFiles
-      },
-      rawOutput: null,
-      startedAt,
-      finishedAt
-    };
-    phases.push(phase);
-    if (onPhase) {
-      await onPhase(phase);
+  try {
+    for (const phaseKey of REVIEW_PHASE_KEYS) {
+      const startedAt = new Date();
+
+      let score: number | null = null;
+      let summary = '';
+      let details: Record<string, unknown> = {};
+      let rawOutput: string | null = null;
+
+      if (codexCliEnabled()) {
+        try {
+          const codexResult = await runCodexPhase(phaseKey, repoPath, metrics);
+          score = codexResult.score;
+          summary = codexResult.summary;
+          details = { ...codexResult.details, engine: 'codex-cli' };
+          rawOutput = codexResult.rawOutput;
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'Codex CLI fallo';
+          const fallbackScore = phaseScore(phaseKey, metrics);
+          score = fallbackScore;
+          summary = `${buildPhaseSummary(phaseKey, fallbackScore, metrics)} Fallback heuristico por error en Codex CLI: ${reason}`;
+          details = {
+            totalFiles: metrics.totalFiles,
+            sourceFiles: metrics.sourceFiles,
+            testFiles: metrics.testFiles,
+            engine: 'heuristic-fallback',
+            codexError: reason
+          };
+        }
+      } else {
+        const heuristicScore = phaseScore(phaseKey, metrics);
+        score = heuristicScore;
+        summary = buildPhaseSummary(phaseKey, heuristicScore, metrics);
+        details = {
+          totalFiles: metrics.totalFiles,
+          sourceFiles: metrics.sourceFiles,
+          testFiles: metrics.testFiles,
+          engine: 'heuristic'
+        };
+      }
+
+      const finishedAt = new Date();
+      const phase = {
+        phaseKey,
+        status: 'done' as const,
+        score,
+        summary,
+        details,
+        rawOutput,
+        startedAt,
+        finishedAt
+      };
+      phases.push(phase);
+      if (onPhase) {
+        await onPhase(phase);
+      }
     }
+  } finally {
+    await rm(tmpBase, { recursive: true, force: true });
   }
 
   const arquitectura = phases.find((p) => p.phaseKey === 'architecture')?.score ?? 0;
