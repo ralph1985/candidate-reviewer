@@ -1,0 +1,182 @@
+---
+import AppLayout from '../../layouts/AppLayout.astro';
+---
+
+<AppLayout activeNav="detail" title="Detalle de revisión" description="Actualiza una revisión y consulta el resultado por fases">
+  <section class="rounded-xl border border-slate-200 bg-white p-4">
+    <div class="grid grid-cols-1 gap-3 md:grid-cols-[220px_auto]">
+      <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-id" type="number" min="1" placeholder="ID revisión" />
+      <button class="w-fit rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-800" id="load-review" type="button">Cargar revisión</button>
+    </div>
+
+    <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+      <select class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-status">
+        <option value="pending">pending</option>
+        <option value="running">running</option>
+        <option value="done">done</option>
+        <option value="failed">failed</option>
+      </select>
+      <select class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-recommendation">
+        <option value="pendiente">pendiente</option>
+        <option value="apto">apto</option>
+        <option value="no_apto">no_apto</option>
+      </select>
+      <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-2" id="edit-scores" placeholder='{"arquitectura": 8, "tests": 7}' />
+    </div>
+
+    <textarea class="mt-3 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-report" placeholder="Informe final"></textarea>
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white" id="save-review" type="button">Guardar cambios</button>
+      <button class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-800" id="run-review" type="button">Run IA</button>
+      <button class="rounded-lg bg-rose-700 px-4 py-2 text-sm font-medium text-white" id="clear-form" type="button">Limpiar</button>
+    </div>
+    <p class="mt-2 text-xs text-slate-500" id="edit-msg"></p>
+  </section>
+
+  <section class="rounded-xl border border-slate-200 bg-white p-4">
+    <h3 class="text-sm font-semibold text-slate-900">Fases revisadas</h3>
+    <div class="mt-2 text-xs text-slate-500" id="phase-list">Selecciona una revisión para ver fases.</div>
+  </section>
+
+  <script type="module">
+    const appBase = window.location.pathname.startsWith('/cr/') ? '/cr' : '';
+    const apiBase = appBase;
+
+    const editId = document.getElementById('edit-id');
+    const loadReviewBtn = document.getElementById('load-review');
+    const editStatus = document.getElementById('edit-status');
+    const editRecommendation = document.getElementById('edit-recommendation');
+    const editScores = document.getElementById('edit-scores');
+    const editReport = document.getElementById('edit-report');
+    const saveReviewBtn = document.getElementById('save-review');
+    const runReviewBtn = document.getElementById('run-review');
+    const clearFormBtn = document.getElementById('clear-form');
+    const editMsg = document.getElementById('edit-msg');
+    const phaseList = document.getElementById('phase-list');
+
+    async function loadPhases(id) {
+      phaseList.textContent = 'Cargando fases...';
+      try {
+        const response = await fetch(`${apiBase}/api/reviews/${id}/phases`);
+        if (!response.ok) throw new Error('No se pudieron cargar fases');
+        const phases = await response.json();
+        if (!phases.length) {
+          phaseList.textContent = 'Sin fases registradas todavía.';
+          return;
+        }
+        phaseList.innerHTML = phases.map((phase) => `
+          <div class="mb-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div class="text-sm font-semibold text-slate-900">${phase.phase_key} · <span class="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-normal">${phase.status}</span> · score: ${phase.score ?? '-'}</div>
+            <div class="mt-1 text-xs text-slate-600">${phase.summary || '-'}</div>
+          </div>
+        `).join('');
+      } catch {
+        phaseList.textContent = 'Error cargando fases.';
+      }
+    }
+
+    async function loadReview(id) {
+      editMsg.textContent = `Cargando revisión #${id}...`;
+      const response = await fetch(`${apiBase}/api/reviews/${id}`);
+      if (!response.ok) {
+        editMsg.textContent = `No se encontró la revisión #${id}.`;
+        return;
+      }
+      const detail = await response.json();
+      editId.value = String(detail.id);
+      editStatus.value = detail.status;
+      editRecommendation.value = detail.recommendation;
+      editScores.value = detail.scores ? JSON.stringify(detail.scores) : '';
+      editReport.value = detail.final_report || '';
+      editMsg.textContent = `Revisión #${id} cargada.`;
+      await loadPhases(id);
+      const url = new URL(window.location.href);
+      url.searchParams.set('id', String(id));
+      window.history.replaceState(null, '', url.toString());
+    }
+
+    loadReviewBtn.addEventListener('click', async () => {
+      const id = Number(editId.value);
+      if (!id) {
+        editMsg.textContent = 'Indica un ID válido.';
+        return;
+      }
+      await loadReview(id);
+    });
+
+    saveReviewBtn.addEventListener('click', async () => {
+      const id = Number(editId.value);
+      if (!id) {
+        editMsg.textContent = 'Indica un ID válido.';
+        return;
+      }
+
+      let parsedScores = null;
+      if (editScores.value.trim()) {
+        try {
+          parsedScores = JSON.parse(editScores.value);
+        } catch {
+          editMsg.textContent = 'Scores no es JSON válido.';
+          return;
+        }
+      }
+
+      editMsg.textContent = 'Guardando cambios...';
+      const response = await fetch(`${apiBase}/api/reviews/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: editStatus.value,
+          recommendation: editRecommendation.value,
+          scores: parsedScores,
+          finalReport: editReport.value
+        })
+      });
+
+      if (!response.ok) {
+        editMsg.textContent = 'No se pudo actualizar la revisión.';
+        return;
+      }
+
+      editMsg.textContent = `Revisión #${id} actualizada.`;
+      await loadPhases(id);
+    });
+
+    runReviewBtn.addEventListener('click', async () => {
+      const id = Number(editId.value);
+      if (!id) {
+        editMsg.textContent = 'Indica un ID válido.';
+        return;
+      }
+      editMsg.textContent = `Lanzando revisión #${id}...`;
+      const response = await fetch(`${apiBase}/api/reviews/${id}/run`, { method: 'POST' });
+      if (!response.ok) {
+        editMsg.textContent = `No se pudo lanzar la revisión #${id}.`;
+        return;
+      }
+      editMsg.textContent = `Revisión #${id} lanzada en background.`;
+      await loadPhases(id);
+    });
+
+    clearFormBtn.addEventListener('click', () => {
+      editId.value = '';
+      editStatus.value = 'pending';
+      editRecommendation.value = 'pendiente';
+      editScores.value = '';
+      editReport.value = '';
+      editMsg.textContent = '';
+      phaseList.textContent = 'Selecciona una revisión para ver fases.';
+      const url = new URL(window.location.href);
+      url.searchParams.delete('id');
+      window.history.replaceState(null, '', url.toString());
+    });
+
+    const params = new URLSearchParams(window.location.search);
+    const initialId = Number(params.get('id'));
+    if (initialId) {
+      editId.value = String(initialId);
+      loadReview(initialId);
+    }
+  </script>
+</AppLayout>
+

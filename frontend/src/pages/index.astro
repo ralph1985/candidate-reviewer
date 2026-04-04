@@ -1,558 +1,77 @@
 ---
-import '../styles/global.css';
+import AppLayout from '../layouts/AppLayout.astro';
 ---
 
-<html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Candidate Reviewer</title>
-  </head>
-  <body class="bg-[radial-gradient(1200px_420px_at_20%_-45%,#dbeafe_0%,transparent_60%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_100%)] text-slate-900">
-    <button
-      class="fixed left-4 top-4 z-30 inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white/90 px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm backdrop-blur lg:hidden"
-      id="menu-toggle"
-      type="button"
-      aria-expanded="false"
-      aria-controls="menu"
-    >
-      <span class="text-sm leading-none">☰</span>
-      <span id="menu-toggle-label">Menú</span>
-    </button>
-    <div class="fixed inset-0 z-20 hidden bg-slate-950/30 backdrop-blur-[1px] lg:hidden" id="menu-backdrop"></div>
+<AppLayout activeNav="home" title="Inicio" description="Resumen rápido y accesos directos del flujo de revisión">
+  <section class="rounded-xl border border-slate-200 bg-white p-4">
+    <h3 class="text-base font-semibold text-slate-900">Estado del sistema</h3>
+    <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+      <article class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Total revisiones</p>
+        <p class="mt-1 text-2xl font-semibold text-slate-900" id="kpi-total">-</p>
+      </article>
+      <article class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Running</p>
+        <p class="mt-1 text-2xl font-semibold text-slate-900" id="kpi-running">-</p>
+      </article>
+      <article class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Skills activas</p>
+        <p class="mt-1 text-2xl font-semibold text-slate-900" id="kpi-skills">-</p>
+      </article>
+    </div>
+  </section>
 
-    <main class="mx-auto grid min-h-screen max-w-[1400px] grid-cols-1 gap-6 p-4 pt-20 lg:grid-cols-[300px_1fr] lg:p-6 lg:pt-6">
-      <aside
-        class="fixed inset-y-0 left-0 z-30 w-80 -translate-x-full border-r border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur transition-transform duration-300 ease-out lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:w-auto lg:translate-x-0 lg:rounded-2xl lg:border lg:shadow-sm"
-        id="app-sidebar"
-      >
-        <div>
-          <h1 class="text-xl font-semibold tracking-tight text-slate-900">Candidate Reviewer</h1>
-          <p class="mt-1 text-sm text-slate-500">Revisión técnica por fases con IA</p>
-        </div>
+  <section class="rounded-xl border border-slate-200 bg-white p-4">
+    <h3 class="text-base font-semibold text-slate-900">Accesos directos</h3>
+    <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+      <a class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-800 hover:bg-slate-100" data-app-route="/reviews/new" href="/reviews/new">
+        Crear nueva revisión
+      </a>
+      <a class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-800 hover:bg-slate-100" data-app-route="/reviews" href="/reviews">
+        Ver listado de revisiones
+      </a>
+      <a class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-800 hover:bg-slate-100" data-app-route="/skills" href="/skills">
+        Administrar skills
+      </a>
+    </div>
+    <p class="mt-3 text-xs text-slate-500" id="home-msg"></p>
+  </section>
 
-        <nav class="mt-6 grid gap-2" id="menu">
-          <button class="menu-btn menu-btn-active rounded-xl border px-4 py-3 text-left transition-colors" data-target="create" type="button">
-            <span class="block text-sm font-semibold">Nueva revisión</span>
-            <span class="block text-xs text-inherit/70">Alta manual de candidato</span>
-          </button>
-          <button class="menu-btn menu-btn-inactive rounded-xl border px-4 py-3 text-left transition-colors" data-target="list" type="button">
-            <span class="block text-sm font-semibold">Revisiones</span>
-            <span class="block text-xs text-inherit/70">Listado y ejecución</span>
-          </button>
-          <button class="menu-btn menu-btn-inactive rounded-xl border px-4 py-3 text-left transition-colors" data-target="edit" type="button">
-            <span class="block text-sm font-semibold">Detalle</span>
-            <span class="block text-xs text-inherit/70">Estado, informe y fases</span>
-          </button>
-          <button class="menu-btn menu-btn-inactive rounded-xl border px-4 py-3 text-left transition-colors" data-target="skills" type="button">
-            <span class="block text-sm font-semibold">Skills</span>
-            <span class="block text-xs text-inherit/70">Prompts y orden de fases</span>
-          </button>
-        </nav>
-      </aside>
+  <script type="module">
+    const appBase = window.location.pathname.startsWith('/cr/') ? '/cr' : '';
+    const apiBase = appBase;
+    const routeLinks = Array.from(document.querySelectorAll('a[data-app-route]'));
+    for (const link of routeLinks) {
+      const route = link.getAttribute('data-app-route') || '/';
+      link.setAttribute('href', `${appBase}${route}`);
+    }
 
-      <div class="min-w-0 space-y-4 lg:pl-2">
-        <section class="panel rounded-xl border border-slate-200 bg-white p-4" data-section="create">
-          <h2 class="text-lg font-semibold">Nueva revisión</h2>
-          <form class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto]" id="create-form">
-            <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="candidate-name" placeholder="Nombre candidato" required />
-            <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="github-url" type="url" placeholder="https://github.com/org/repo" required />
-            <button class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white" type="submit">Crear</button>
-          </form>
-          <p class="mt-2 text-xs text-slate-500" id="create-msg"></p>
-        </section>
+    const totalEl = document.getElementById('kpi-total');
+    const runningEl = document.getElementById('kpi-running');
+    const skillsEl = document.getElementById('kpi-skills');
+    const msgEl = document.getElementById('home-msg');
 
-        <section class="panel hidden rounded-xl border border-slate-200 bg-white p-4" data-section="list">
-          <div class="flex items-center justify-between gap-3">
-            <h2 class="text-lg font-semibold">Revisiones</h2>
-            <button class="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-800" id="refresh" type="button">Refrescar</button>
-          </div>
-          <div class="mt-3 overflow-auto">
-            <table class="min-w-full border-collapse text-sm">
-              <thead>
-                <tr class="text-left text-slate-600">
-                  <th class="border-b border-slate-200 px-2 py-2">ID</th>
-                  <th class="border-b border-slate-200 px-2 py-2">Candidato</th>
-                  <th class="border-b border-slate-200 px-2 py-2">Repositorio</th>
-                  <th class="border-b border-slate-200 px-2 py-2">Estado</th>
-                  <th class="border-b border-slate-200 px-2 py-2">Recomendación</th>
-                  <th class="border-b border-slate-200 px-2 py-2">Creado</th>
-                  <th class="border-b border-slate-200 px-2 py-2">Acción</th>
-                </tr>
-              </thead>
-              <tbody id="reviews-body"></tbody>
-            </table>
-          </div>
-        </section>
+    async function loadKpis() {
+      msgEl.textContent = 'Cargando métricas...';
+      try {
+        const [reviewsRes, skillsRes] = await Promise.all([
+          fetch(`${apiBase}/api/reviews`),
+          fetch(`${apiBase}/api/skills`)
+        ]);
+        if (!reviewsRes.ok || !skillsRes.ok) throw new Error('No se pudieron cargar métricas');
+        const reviews = await reviewsRes.json();
+        const skills = await skillsRes.json();
 
-        <section class="panel hidden rounded-xl border border-slate-200 bg-white p-4" data-section="edit">
-          <h2 class="text-lg font-semibold">Actualizar revisión</h2>
-          <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-            <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-id" type="number" min="1" placeholder="ID revisión" />
-            <select class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-status">
-              <option value="pending">pending</option>
-              <option value="running">running</option>
-              <option value="done">done</option>
-              <option value="failed">failed</option>
-            </select>
-            <select class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-recommendation">
-              <option value="pendiente">pendiente</option>
-              <option value="apto">apto</option>
-              <option value="no_apto">no_apto</option>
-            </select>
-            <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-scores" placeholder='{"arquitectura": 8, "tests": 7}' />
-          </div>
-          <textarea class="mt-3 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-report" placeholder="Informe final"></textarea>
-          <div class="mt-3 flex flex-wrap gap-2">
-            <button class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white" id="save-review" type="button">Guardar cambios</button>
-            <button class="rounded-lg bg-rose-700 px-4 py-2 text-sm font-medium text-white" id="clear-form" type="button">Limpiar</button>
-          </div>
-          <p class="mt-2 text-xs text-slate-500" id="edit-msg"></p>
-
-          <div class="mt-4">
-            <h3 class="text-sm font-semibold text-slate-900">Fases revisadas</h3>
-            <div class="mt-2 text-xs text-slate-500" id="phase-list">Selecciona una revisión para ver fases.</div>
-          </div>
-        </section>
-
-        <section class="panel hidden rounded-xl border border-slate-200 bg-white p-4" data-section="skills">
-          <div class="flex items-center justify-between gap-3">
-            <h2 class="text-lg font-semibold">Skills de Revisión</h2>
-            <button class="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-800" id="refresh-skills" type="button">Refrescar</button>
-          </div>
-          <p class="mt-1 text-xs text-slate-500">Cada skill define una fase y su prompt enviado a Codex.</p>
-
-          <div class="mt-3 overflow-auto">
-            <table class="min-w-full border-collapse text-sm">
-              <thead>
-                <tr class="text-left text-slate-600">
-                  <th class="border-b border-slate-200 px-2 py-2">ID</th>
-                  <th class="border-b border-slate-200 px-2 py-2">Key</th>
-                  <th class="border-b border-slate-200 px-2 py-2">Nombre</th>
-                  <th class="border-b border-slate-200 px-2 py-2">Activa</th>
-                  <th class="border-b border-slate-200 px-2 py-2">Orden</th>
-                  <th class="border-b border-slate-200 px-2 py-2">Acción</th>
-                </tr>
-              </thead>
-              <tbody id="skills-body"></tbody>
-            </table>
-          </div>
-
-          <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-            <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="skill-id" type="number" min="1" placeholder="ID (auto en alta)" />
-            <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="skill-key" placeholder="key (ej: architecture)" />
-            <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="skill-name" placeholder="Nombre" />
-            <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="skill-sort-order" type="number" placeholder="Orden (10,20,30...)" />
-            <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-2" id="skill-description" placeholder="Descripción" />
-          </div>
-          <textarea class="mt-3 min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="skill-prompt-template" placeholder="Prompt template"></textarea>
-          <label class="mt-3 inline-flex items-center gap-2 text-sm text-slate-700">
-            <input id="skill-active" type="checkbox" checked />
-            Activa
-          </label>
-
-          <div class="mt-3 flex flex-wrap gap-2">
-            <button class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white" id="save-skill" type="button">Guardar skill</button>
-            <button class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-800" id="clear-skill-form" type="button">Limpiar</button>
-          </div>
-          <p class="mt-2 text-xs text-slate-500" id="skill-msg"></p>
-        </section>
-      </div>
-    </main>
-
-    <script type="module">
-      const createForm = document.getElementById('create-form');
-      const createMsg = document.getElementById('create-msg');
-      const reviewsBody = document.getElementById('reviews-body');
-      const refreshBtn = document.getElementById('refresh');
-
-      const editId = document.getElementById('edit-id');
-      const editStatus = document.getElementById('edit-status');
-      const editRecommendation = document.getElementById('edit-recommendation');
-      const editScores = document.getElementById('edit-scores');
-      const editReport = document.getElementById('edit-report');
-      const saveReviewBtn = document.getElementById('save-review');
-      const clearFormBtn = document.getElementById('clear-form');
-      const editMsg = document.getElementById('edit-msg');
-      const phaseList = document.getElementById('phase-list');
-      const skillsBody = document.getElementById('skills-body');
-      const refreshSkillsBtn = document.getElementById('refresh-skills');
-      const skillId = document.getElementById('skill-id');
-      const skillKey = document.getElementById('skill-key');
-      const skillName = document.getElementById('skill-name');
-      const skillSortOrder = document.getElementById('skill-sort-order');
-      const skillDescription = document.getElementById('skill-description');
-      const skillPromptTemplate = document.getElementById('skill-prompt-template');
-      const skillActive = document.getElementById('skill-active');
-      const saveSkillBtn = document.getElementById('save-skill');
-      const clearSkillFormBtn = document.getElementById('clear-skill-form');
-      const skillMsg = document.getElementById('skill-msg');
-      const apiBase = window.location.pathname.startsWith('/cr/') ? '/cr' : '';
-
-      const menuButtons = Array.from(document.querySelectorAll('#menu button[data-target]'));
-      const panels = Array.from(document.querySelectorAll('.panel[data-section]'));
-      const menuToggleBtn = document.getElementById('menu-toggle');
-      const menuToggleLabel = document.getElementById('menu-toggle-label');
-      const menuBackdrop = document.getElementById('menu-backdrop');
-      const sidebar = document.getElementById('app-sidebar');
-
-      const activeClasses = ['menu-btn-active', 'border-blue-700', 'bg-blue-700', 'text-white', 'shadow-sm'];
-      const inactiveClasses = ['menu-btn-inactive', 'border-slate-200', 'bg-white', 'text-slate-700', 'hover:bg-slate-50'];
-      const mobileMedia = window.matchMedia('(max-width: 1023px)');
-      const validSections = new Set(panels.map((panel) => panel.getAttribute('data-section')).filter(Boolean));
-
-      function setMobileMenu(open) {
-        if (!menuToggleBtn || !menuBackdrop || !sidebar) return;
-        if (!mobileMedia.matches) {
-          sidebar.classList.remove('-translate-x-full');
-          menuBackdrop.classList.add('hidden');
-          document.body.classList.remove('overflow-hidden');
-          menuToggleBtn.setAttribute('aria-expanded', 'false');
-          if (menuToggleLabel) menuToggleLabel.textContent = 'Menú';
-          return;
-        }
-        sidebar.classList.toggle('-translate-x-full', !open);
-        menuBackdrop.classList.toggle('hidden', !open);
-        document.body.classList.toggle('overflow-hidden', open);
-        menuToggleBtn.setAttribute('aria-expanded', String(open));
-        if (menuToggleLabel) menuToggleLabel.textContent = open ? 'Cerrar' : 'Menú';
+        totalEl.textContent = String(reviews.length);
+        runningEl.textContent = String(reviews.filter((item) => item.status === 'running').length);
+        skillsEl.textContent = String(skills.filter((item) => item.active).length);
+        msgEl.textContent = '';
+      } catch {
+        msgEl.textContent = 'No se pudieron cargar las métricas.';
       }
+    }
 
-      function showSection(target, syncHash = true) {
-        if (!validSections.has(target)) return;
-        for (const button of menuButtons) {
-          const isActive = button.getAttribute('data-target') === target;
-          button.classList.remove(...activeClasses, ...inactiveClasses);
-          button.setAttribute('aria-current', isActive ? 'page' : 'false');
-          if (isActive) {
-            button.classList.add(...activeClasses);
-          } else {
-            button.classList.add(...inactiveClasses);
-          }
-        }
+    loadKpis();
+  </script>
+</AppLayout>
 
-        for (const panel of panels) {
-          const isActive = panel.getAttribute('data-section') === target;
-          panel.classList.toggle('hidden', !isActive);
-        }
-
-        if (mobileMedia.matches) {
-          setMobileMenu(false);
-        }
-
-        if (syncHash) {
-          history.replaceState(null, '', `#${target}`);
-        }
-      }
-
-      for (const button of menuButtons) {
-        button.addEventListener('click', () => {
-          const target = button.getAttribute('data-target');
-          if (target) showSection(target);
-        });
-      }
-
-      if (menuToggleBtn) {
-        menuToggleBtn.addEventListener('click', () => {
-          const isOpen = menuToggleBtn.getAttribute('aria-expanded') === 'true';
-          setMobileMenu(!isOpen);
-        });
-      }
-
-      if (menuBackdrop) {
-        menuBackdrop.addEventListener('click', () => {
-          setMobileMenu(false);
-        });
-      }
-
-      document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape') setMobileMenu(false);
-      });
-
-      mobileMedia.addEventListener('change', () => {
-        setMobileMenu(false);
-      });
-      window.addEventListener('hashchange', () => {
-        const section = window.location.hash.replace('#', '');
-        if (validSections.has(section)) {
-          showSection(section, false);
-        }
-      });
-
-      const fmtDate = (value) => value ? new Date(value).toLocaleString('es-ES') : '-';
-
-      function clearSkillForm() {
-        skillId.value = '';
-        skillKey.value = '';
-        skillName.value = '';
-        skillSortOrder.value = '';
-        skillDescription.value = '';
-        skillPromptTemplate.value = '';
-        skillActive.checked = true;
-      }
-
-      function fillSkillForm(skill) {
-        skillId.value = String(skill.id);
-        skillKey.value = skill.key || '';
-        skillName.value = skill.name || '';
-        skillSortOrder.value = String(skill.sort_order ?? '');
-        skillDescription.value = skill.description || '';
-        skillPromptTemplate.value = skill.prompt_template || '';
-        skillActive.checked = Boolean(skill.active);
-      }
-
-      async function loadSkills() {
-        skillsBody.innerHTML = '<tr><td colspan="6" class="px-2 py-2 text-xs text-slate-500">Cargando skills...</td></tr>';
-        try {
-          const response = await fetch(`${apiBase}/api/skills`);
-          if (!response.ok) throw new Error('No se pudieron cargar skills');
-          const data = await response.json();
-
-          if (!data.length) {
-            skillsBody.innerHTML = '<tr><td colspan="6" class="px-2 py-2 text-xs text-slate-500">Sin skills todavía.</td></tr>';
-            return;
-          }
-
-          skillsBody.innerHTML = data.map((skill) => `
-            <tr class="align-top">
-              <td class="border-b border-slate-200 px-2 py-2">${skill.id}</td>
-              <td class="border-b border-slate-200 px-2 py-2">${skill.key}</td>
-              <td class="border-b border-slate-200 px-2 py-2">${skill.name}</td>
-              <td class="border-b border-slate-200 px-2 py-2">${skill.active ? 'sí' : 'no'}</td>
-              <td class="border-b border-slate-200 px-2 py-2">${skill.sort_order}</td>
-              <td class="border-b border-slate-200 px-2 py-2">
-                <button class="rounded bg-slate-100 px-2 py-1 text-xs" data-edit-skill="${skill.id}" type="button">Editar</button>
-              </td>
-            </tr>
-          `).join('');
-
-          for (const btn of skillsBody.querySelectorAll('button[data-edit-skill]')) {
-            btn.addEventListener('click', () => {
-              const id = Number(btn.getAttribute('data-edit-skill'));
-              const skill = data.find((entry) => entry.id === id);
-              if (!skill) return;
-              fillSkillForm(skill);
-              skillMsg.textContent = `Skill #${id} cargada para edición.`;
-            });
-          }
-        } catch {
-          skillsBody.innerHTML = '<tr><td colspan="6" class="px-2 py-2 text-xs text-slate-500">Error cargando skills.</td></tr>';
-        }
-      }
-
-      async function loadPhases(id) {
-        phaseList.textContent = 'Cargando fases...';
-        try {
-          const response = await fetch(`${apiBase}/api/reviews/${id}/phases`);
-          if (!response.ok) throw new Error('No se pudieron cargar fases');
-          const phases = await response.json();
-          if (!phases.length) {
-            phaseList.textContent = 'Sin fases registradas todavía.';
-            return;
-          }
-          phaseList.innerHTML = phases.map((phase) => `
-            <div class="mb-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div class="text-sm font-semibold text-slate-900">${phase.phase_key} · <span class="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-normal">${phase.status}</span> · score: ${phase.score ?? '-'}</div>
-              <div class="mt-1 text-xs text-slate-600">${phase.summary || '-'}</div>
-            </div>
-          `).join('');
-        } catch {
-          phaseList.textContent = 'Error cargando fases.';
-        }
-      }
-
-      async function loadReviews() {
-        reviewsBody.innerHTML = '<tr><td colspan="7" class="px-2 py-2 text-xs text-slate-500">Cargando...</td></tr>';
-        try {
-          const response = await fetch(`${apiBase}/api/reviews`);
-          if (!response.ok) throw new Error('No se pudo cargar revisiones');
-          const data = await response.json();
-
-          if (!data.length) {
-            reviewsBody.innerHTML = '<tr><td colspan="7" class="px-2 py-2 text-xs text-slate-500">Sin revisiones todavía.</td></tr>';
-            return;
-          }
-
-          reviewsBody.innerHTML = data.map((review) => `
-            <tr class="align-top">
-              <td class="border-b border-slate-200 px-2 py-2">${review.id}</td>
-              <td class="border-b border-slate-200 px-2 py-2">${review.candidate_name}</td>
-              <td class="border-b border-slate-200 px-2 py-2"><a class="text-blue-700 underline" href="${review.github_url}" target="_blank" rel="noreferrer">repo</a></td>
-              <td class="border-b border-slate-200 px-2 py-2"><span class="rounded-full bg-slate-200 px-2 py-0.5 text-xs">${review.status}</span></td>
-              <td class="border-b border-slate-200 px-2 py-2">${review.recommendation}</td>
-              <td class="border-b border-slate-200 px-2 py-2">${fmtDate(review.created_at)}</td>
-              <td class="border-b border-slate-200 px-2 py-2">
-                <button class="mr-1 rounded bg-slate-100 px-2 py-1 text-xs" data-fill="${review.id}" type="button">Editar</button>
-                <button class="rounded bg-blue-700 px-2 py-1 text-xs text-white" data-run="${review.id}" type="button">Run IA</button>
-              </td>
-            </tr>
-          `).join('');
-
-          for (const btn of reviewsBody.querySelectorAll('button[data-fill]')) {
-            btn.addEventListener('click', async () => {
-              const id = Number(btn.getAttribute('data-fill'));
-              const response = await fetch(`${apiBase}/api/reviews/${id}`);
-              if (!response.ok) return;
-              const detail = await response.json();
-              editId.value = String(detail.id);
-              editStatus.value = detail.status;
-              editRecommendation.value = detail.recommendation;
-              editScores.value = detail.scores ? JSON.stringify(detail.scores) : '';
-              editReport.value = detail.final_report || '';
-              editMsg.textContent = `Formulario cargado para revisión #${id}`;
-              await loadPhases(id);
-              showSection('edit');
-            });
-          }
-
-          for (const btn of reviewsBody.querySelectorAll('button[data-run]')) {
-            btn.addEventListener('click', async () => {
-              const id = Number(btn.getAttribute('data-run'));
-              const response = await fetch(`${apiBase}/api/reviews/${id}/run`, {
-                method: 'POST'
-              });
-              if (!response.ok) {
-                editMsg.textContent = `No se pudo lanzar la revisión #${id}.`;
-                return;
-              }
-              editMsg.textContent = `Revisión #${id} lanzada en background.`;
-              await loadPhases(id);
-              showSection('edit');
-              await loadReviews();
-            });
-          }
-        } catch {
-          reviewsBody.innerHTML = '<tr><td colspan="7" class="px-2 py-2 text-xs text-slate-500">Error cargando revisiones.</td></tr>';
-        }
-      }
-
-      createForm.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const candidateName = document.getElementById('candidate-name').value.trim();
-        const githubUrl = document.getElementById('github-url').value.trim();
-
-        createMsg.textContent = 'Guardando...';
-
-        const response = await fetch(`${apiBase}/api/reviews`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ candidateName, githubUrl })
-        });
-
-        if (!response.ok) {
-          createMsg.textContent = 'No se pudo crear la revisión.';
-          return;
-        }
-
-        const created = await response.json();
-        createMsg.textContent = `Revisión #${created.id} creada.`;
-        createForm.reset();
-        showSection('list');
-        await loadReviews();
-      });
-
-      refreshBtn.addEventListener('click', loadReviews);
-      refreshSkillsBtn.addEventListener('click', loadSkills);
-
-      saveReviewBtn.addEventListener('click', async () => {
-        const id = Number(editId.value);
-        if (!id) {
-          editMsg.textContent = 'Indica un ID válido.';
-          return;
-        }
-
-        let parsedScores = null;
-        if (editScores.value.trim()) {
-          try {
-            parsedScores = JSON.parse(editScores.value);
-          } catch {
-            editMsg.textContent = 'Scores no es JSON válido.';
-            return;
-          }
-        }
-
-        editMsg.textContent = 'Guardando cambios...';
-
-        const response = await fetch(`${apiBase}/api/reviews/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            status: editStatus.value,
-            recommendation: editRecommendation.value,
-            scores: parsedScores,
-            finalReport: editReport.value
-          })
-        });
-
-        if (!response.ok) {
-          editMsg.textContent = 'No se pudo actualizar la revisión.';
-          return;
-        }
-
-        editMsg.textContent = `Revisión #${id} actualizada.`;
-        await loadPhases(id);
-        await loadReviews();
-      });
-
-      clearFormBtn.addEventListener('click', () => {
-        editId.value = '';
-        editStatus.value = 'pending';
-        editRecommendation.value = 'pendiente';
-        editScores.value = '';
-        editReport.value = '';
-        editMsg.textContent = '';
-        phaseList.textContent = 'Selecciona una revisión para ver fases.';
-      });
-
-      saveSkillBtn.addEventListener('click', async () => {
-        const payload = {
-          key: skillKey.value.trim(),
-          name: skillName.value.trim(),
-          description: skillDescription.value.trim(),
-          promptTemplate: skillPromptTemplate.value.trim(),
-          active: skillActive.checked,
-          sortOrder: skillSortOrder.value ? Number(skillSortOrder.value) : undefined
-        };
-
-        if (!payload.key || !payload.name || !payload.promptTemplate) {
-          skillMsg.textContent = 'Key, nombre y prompt son obligatorios.';
-          return;
-        }
-
-        const id = Number(skillId.value);
-        const isUpdate = Number.isInteger(id) && id > 0;
-        const endpoint = isUpdate ? `${apiBase}/api/skills/${id}` : `${apiBase}/api/skills`;
-        const method = isUpdate ? 'PATCH' : 'POST';
-
-        skillMsg.textContent = 'Guardando skill...';
-        const response = await fetch(endpoint, {
-          method,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-          const error = await response.json().catch(() => ({}));
-          skillMsg.textContent = error.error || 'No se pudo guardar la skill.';
-          return;
-        }
-
-        const saved = await response.json();
-        skillMsg.textContent = `Skill #${saved.id} guardada correctamente.`;
-        fillSkillForm(saved);
-        await loadSkills();
-      });
-
-      clearSkillFormBtn.addEventListener('click', () => {
-        clearSkillForm();
-        skillMsg.textContent = '';
-      });
-
-      const hashSection = window.location.hash.replace('#', '');
-      showSection(validSections.has(hashSection) ? hashSection : 'create', false);
-      setMobileMenu(false);
-      loadReviews();
-      loadSkills();
-    </script>
-  </body>
-</html>
