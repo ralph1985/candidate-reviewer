@@ -61,6 +61,9 @@ Nueva tabla `review_phase_results`:
 - Invocar Codex CLI con timeout y captura de salida.
 - Parsear salida a JSON seguro (`score`, `summary`, `details`).
 - Si Codex CLI falla, registrar `failed` en esa fase y continuar o abortar según política.
+- Requisito runtime: contenedor con binario `codex` instalado y accesible en `PATH`.
+- Requisito auth: sesión/token de Codex CLI disponible dentro del contenedor.
+- Requisito formato: configurar args/prompts de Codex para devolver JSON estricto por fase.
 
 ## Plan de implementación
 
@@ -71,3 +74,4 @@ Nueva tabla `review_phase_results`:
 - [x] UI para visualizar fases por revisión
 - [x] Adaptador base Codex CLI por fase (con fallback heuristico)
 - [ ] Robustecer prompt/parseo y politicas de reintento para produccion
+- [ ] Configurar auth de Codex CLI en contenedor y validar `engine=codex-cli`

@@ -17,6 +17,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 RUN apk add --no-cache git
+RUN npm install -g @openai/codex
 COPY --from=backend-builder /app/backend/package*.json ./
 COPY --from=backend-builder /app/backend/node_modules ./node_modules
 COPY --from=backend-builder /app/backend/dist ./dist
