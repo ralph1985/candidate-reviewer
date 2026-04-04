@@ -11,6 +11,12 @@ Aplicación web para revisar pruebas técnicas de candidatos con ejecución auto
 
 ## Estado actual
 
+- UI multipágina con menú lateral compartido:
+  - `/` inicio
+  - `/reviews/new`
+  - `/reviews`
+  - `/reviews/detail?id=<id>`
+  - `/skills`
 - Gestión de revisiones (`create`, `list`, `update`).
 - Gestión de skills/fases desde UI (key, nombre, prompt, activo, orden).
 - Ejecución automática por fases leyendo skills activas desde PostgreSQL.

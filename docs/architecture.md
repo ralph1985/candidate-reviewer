@@ -5,7 +5,8 @@
 1. Frontend (`frontend/`)
 - Astro (render estático).
 - TailwindCSS para UI.
-- Pantalla única con navegación lateral por secciones.
+- Layout compartido con sidebar/drawer responsive.
+- Rutas separadas por dominio funcional (`/`, `/reviews/new`, `/reviews`, `/reviews/detail`, `/skills`).
 
 2. Backend (`backend/`)
 - Fastify.
@@ -21,6 +22,7 @@
 - Contenedor único para app (frontend estático servido por backend).
 - Conexión a PostgreSQL compartido en red Docker (`infra-net`).
 - Exposición vía reverse-proxy por ruta (`/cr/`).
+- Assets estáticos servidos tanto en `/` como en `/cr/` para compatibilidad con proxy.
 
 ## Flujo de revisión
 

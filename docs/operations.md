@@ -27,6 +27,21 @@ docker ps | rg candidate-reviewer
 curl http://localhost:3000/health
 ```
 
+## Rutas UI
+
+- Local directo:
+  - `http://localhost:3000/`
+  - `http://localhost:3000/reviews/new`
+  - `http://localhost:3000/reviews`
+  - `http://localhost:3000/reviews/detail?id=<id>`
+  - `http://localhost:3000/skills`
+- Detrás de proxy con prefijo `/cr`:
+  - `https://<host>/cr/`
+  - `https://<host>/cr/reviews/new`
+  - `https://<host>/cr/reviews`
+  - `https://<host>/cr/reviews/detail?id=<id>`
+  - `https://<host>/cr/skills`
+
 ## Migraciones SQL
 
 Esquema base:
@@ -70,6 +85,7 @@ docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/delet
 
 3. Error al cargar revisiones desde `/cr/`.
 - Verificar que frontend usa base path `/cr`.
+- Verificar carga de CSS en `GET /cr/_astro/*.css`.
 - Probar `GET /cr/api/reviews` desde proxy.
 
 ## Comandos de diagnóstico
