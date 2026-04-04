@@ -104,6 +104,11 @@ app.register(fastifyStatic, {
   root: staticDir,
   prefix: '/'
 });
+app.register(fastifyStatic, {
+  root: staticDir,
+  prefix: '/cr/',
+  decorateReply: false
+});
 
 app.get('/health', async () => ({ ok: true }));
 
