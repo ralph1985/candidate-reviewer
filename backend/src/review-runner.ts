@@ -37,6 +37,18 @@ type Scores = {
 
 export type RunnerContext = {
   reviewId?: number;
+  exerciseName?: string;
+  matchedChallenge?: {
+    key: string;
+    name: string;
+    content: string;
+    matchReason: string;
+  } | null;
+  globalRequirements?: Array<{
+    key: string;
+    name: string;
+    content: string;
+  }>;
 };
 
 export type PhasedReviewResult = {
@@ -77,6 +89,12 @@ const SOURCE_EXTENSIONS = new Set([
 ]);
 
 const DEFAULT_SKILLS: ReviewSkillDefinition[] = [
+  {
+    key: 'challenge_requirements',
+    name: 'Cumplimiento del enunciado',
+    promptTemplate:
+      'Analiza el repositorio contra el enunciado oficial de la prueba detectada. Enumera requisitos cumplidos, parcialmente cumplidos y no cumplidos con evidencia concreta (ficheros/comportamientos).'
+  },
   {
     key: 'architecture',
     name: 'Arquitectura',
@@ -236,6 +254,9 @@ function scoreDocumentation(metrics: RepoMetrics): number {
 }
 
 function heuristicScoreByPhase(phaseKey: string, metrics: RepoMetrics): number {
+  if (phaseKey === 'challenge_requirements') {
+    return scoreClamp((scoreDocumentation(metrics) + scoreArchitecture(metrics) + scoreTests(metrics)) / 3);
+  }
   if (phaseKey === 'architecture') return scoreArchitecture(metrics);
   if (phaseKey === 'tests') return scoreTests(metrics);
   if (phaseKey === 'security') return scoreSecurity(metrics);
@@ -245,6 +266,9 @@ function heuristicScoreByPhase(phaseKey: string, metrics: RepoMetrics): number {
 }
 
 function buildPhaseSummary(phaseKey: string, score: number, metrics: RepoMetrics): string {
+  if (phaseKey === 'challenge_requirements') {
+    return `Cumplimiento del enunciado ${score}/10. Fallback estructural por ausencia de evaluación específica de requisitos.`;
+  }
   if (phaseKey === 'architecture') {
     return `Arquitectura ${score}/10. src=${metrics.hasSrcDir ? 'sí' : 'no'}, ts=${metrics.hasTypeScript ? 'sí' : 'no'}, ci=${metrics.hasCi ? 'sí' : 'no'}.`;
   }
@@ -268,11 +292,40 @@ function renderPromptTemplate(template: string, phaseKey: string, phaseName: str
     .replaceAll('{{metrics_json}}', metricsJson);
 }
 
-function codexPrompt(skill: ReviewSkillDefinition, metrics: RepoMetrics): string {
+function trimForPrompt(text: string, maxChars = 12000): string {
+  return text.length <= maxChars ? text : `${text.slice(0, maxChars)}\n...[truncated]`;
+}
+
+function codexPrompt(
+  skill: ReviewSkillDefinition,
+  metrics: RepoMetrics,
+  challengeContext: {
+    matchedChallenge?: { key: string; name: string; content: string } | null;
+    globalRequirements?: Array<{ key: string; name: string; content: string }>;
+  }
+): string {
   const custom = renderPromptTemplate(skill.promptTemplate, skill.key, skill.name, metrics);
+  const challengeBlock: string[] = [];
+  if (challengeContext.matchedChallenge) {
+    challengeBlock.push(
+      `Prueba detectada: ${challengeContext.matchedChallenge.key} (${challengeContext.matchedChallenge.name}).`,
+      'Enunciado oficial de la prueba:',
+      trimForPrompt(challengeContext.matchedChallenge.content, 14000)
+    );
+  } else {
+    challengeBlock.push('Prueba detectada: no determinada con certeza. Sé explícito si falta contexto.');
+  }
+  if ((challengeContext.globalRequirements || []).length > 0) {
+    const rendered = (challengeContext.globalRequirements || [])
+      .map((item) => `${item.key} (${item.name}):\n${trimForPrompt(item.content, 6000)}`)
+      .join('\n\n');
+    challengeBlock.push('Requisitos globales a considerar:', rendered);
+  }
+
   return [
     'Eres un revisor tecnico de pruebas de candidatos.',
     `Fase: "${skill.key}" (${skill.name}).`,
+    ...challengeBlock,
     custom,
     'Responde SOLO JSON valido sin markdown con este esquema exacto:',
     '{"score": <0-10>, "summary": "<texto corto>", "details": {"strengths": ["..."], "risks": ["..."], "notes": ["..."]}}',
@@ -569,9 +622,13 @@ async function runCodexExecWithSchema(repoPath: string, prompt: string): Promise
 async function runCodexPhase(
   skill: ReviewSkillDefinition,
   repoPath: string,
-  metrics: RepoMetrics
+  metrics: RepoMetrics,
+  challengeContext: {
+    matchedChallenge?: { key: string; name: string; content: string } | null;
+    globalRequirements?: Array<{ key: string; name: string; content: string }>;
+  }
 ): Promise<{ score: number; summary: string; details: Record<string, unknown>; rawOutput: string }> {
-  const execResult = await runCodexExecWithSchema(repoPath, codexPrompt(skill, metrics));
+  const execResult = await runCodexExecWithSchema(repoPath, codexPrompt(skill, metrics, challengeContext));
   const raw = execResult.schemaOutput?.trim() || execResult.mergedOutput;
   if (!raw) {
     throw new Error(`Codex CLI fallo antes de JSON valido: ${execResult.errorMessage || 'sin salida util'}`);
@@ -664,6 +721,20 @@ export async function runPhasedReview(
   const skills = phaseDefinitions.length > 0 ? phaseDefinitions : DEFAULT_SKILLS;
   const { workspacePath, metrics, cleanupOnExit } = await prepareRepository(githubUrl, context);
   const phases: PhasedReviewResult['phases'] = [];
+  const challengeContext = {
+    matchedChallenge: context?.matchedChallenge
+      ? {
+          key: context.matchedChallenge.key,
+          name: context.matchedChallenge.name,
+          content: context.matchedChallenge.content
+        }
+      : null,
+    globalRequirements: (context?.globalRequirements || []).map((item) => ({
+      key: item.key,
+      name: item.name,
+      content: item.content
+    }))
+  };
 
   let securityPreflight: SecurityPreflightResult | null = null;
 
@@ -674,7 +745,20 @@ export async function runPhasedReview(
       let status: 'done' | 'failed' = 'done';
       let score: number | null = null;
       let summary = '';
-      let details: Record<string, unknown> = { workspacePath };
+      let details: Record<string, unknown> = {
+        workspacePath,
+        challenge: challengeContext.matchedChallenge
+          ? {
+              key: challengeContext.matchedChallenge.key,
+              name: challengeContext.matchedChallenge.name,
+              matchReason: context?.matchedChallenge?.matchReason || 'unknown'
+            }
+          : null,
+        globalRequirements: challengeContext.globalRequirements.map((item) => ({
+          key: item.key,
+          name: item.name
+        }))
+      };
       let rawOutput: string | null = null;
 
       if (skill.key === 'security') {
@@ -724,7 +808,7 @@ export async function runPhasedReview(
         rawOutput = execution.output || null;
       } else if (codexCliEnabled()) {
         try {
-          const codexResult = await runCodexPhase(skill, workspacePath, metrics);
+          const codexResult = await runCodexPhase(skill, workspacePath, metrics, challengeContext);
           score = codexResult.score;
           summary = codexResult.summary;
           details = { ...details, ...codexResult.details, engine: 'codex-cli' };

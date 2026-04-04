@@ -104,8 +104,47 @@ BEFORE UPDATE ON review_skills
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at_review_skills();
 
+CREATE TABLE IF NOT EXISTS challenge_definitions (
+  id BIGSERIAL PRIMARY KEY,
+  key TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'challenge' CHECK (kind IN ('challenge', 'global_requirement')),
+  aliases TEXT[] NOT NULL DEFAULT '{}',
+  content_format TEXT NOT NULL DEFAULT 'markdown' CHECK (content_format IN ('markdown', 'html')),
+  content TEXT NOT NULL,
+  source_path TEXT,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_challenge_definitions_active ON challenge_definitions(active);
+CREATE INDEX IF NOT EXISTS idx_challenge_definitions_kind ON challenge_definitions(kind);
+
+CREATE OR REPLACE FUNCTION set_updated_at_challenge_definitions()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_set_updated_at_challenge_definitions ON challenge_definitions;
+CREATE TRIGGER trg_set_updated_at_challenge_definitions
+BEFORE UPDATE ON challenge_definitions
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at_challenge_definitions();
+
 INSERT INTO review_skills (key, name, description, prompt_template, active, sort_order)
 VALUES
+  (
+    'challenge_requirements',
+    'Cumplimiento del enunciado',
+    'Valida si la implementación cubre los requisitos del enunciado de la prueba técnica.',
+    'Analiza el repositorio contra el enunciado oficial de la prueba detectada. Enumera requisitos cumplidos, parcialmente cumplidos y no cumplidos con evidencia concreta (ficheros/comportamientos).',
+    TRUE,
+    5
+  ),
   (
     'architecture',
     'Arquitectura',

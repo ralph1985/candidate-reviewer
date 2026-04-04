@@ -21,6 +21,7 @@ RUN npm install -g @openai/codex
 COPY --from=backend-builder /app/backend/package*.json ./
 COPY --from=backend-builder /app/backend/node_modules ./node_modules
 COPY --from=backend-builder /app/backend/dist ./dist
+COPY challenges ./challenges
 COPY --from=frontend-builder /app/frontend/dist ./frontend-dist
 EXPOSE 3000
 CMD ["node", "dist/server.js"]

@@ -183,6 +183,25 @@ Body (todo opcional):
 }
 ```
 
+## Enunciados (Challenges)
+
+### Listar enunciados sincronizados
+
+`GET /api/challenges`
+
+### Resincronizar enunciados desde `challenges/pages`
+
+`POST /api/challenges/sync`
+
+Respuesta:
+
+```json
+{
+  "upserted": 6,
+  "skipped": []
+}
+```
+
 ## Códigos de error comunes
 
 - `400`: parámetros inválidos.

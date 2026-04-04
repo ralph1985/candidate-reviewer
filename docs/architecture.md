@@ -18,6 +18,7 @@
 - Tabla `reviews` para estado global.
 - Tabla `review_phase_results` para detalle por fase.
 - Tabla `review_skills` para definir fases/prompt administrables.
+- Tabla `challenge_definitions` para enunciados oficiales (retos + requisitos globales como página 404).
 - `reviews` también guarda metadatos de histórico importado: evaluador, email, fecha original (`reviewed_at`), deploy, ejercicio, preguntas predefinidas e `import_source`.
 
 4. Infraestructura
@@ -32,12 +33,14 @@
 2. Usuario lanza ejecución (`POST /api/reviews/:id/run`).
 3. Backend marca revisión en `running` y limpia fases previas.
 4. Backend carga skills activas de `review_skills` (ordenadas).
-5. Runner clona repo en workspace persistente por review (`review-<id>`).
-6. Antes de instalar dependencias, ejecuta preflight de seguridad (bloquea si detecta riesgos críticos).
-7. Fase `tests`: instalación segura (`--ignore-scripts`) + ejecución real de tests cuando aplique.
-8. Runner evalúa el resto de fases en secuencia.
-9. Cada fase se persiste en `review_phase_results`.
-10. Al terminar, backend actualiza `reviews` con score global, informe y recomendación.
+5. Backend detecta la prueba objetivo combinando `exercise_name` y URL de repositorio contra `challenge_definitions`.
+6. Runner clona repo en workspace persistente por review (`review-<id>`).
+7. Antes de instalar dependencias, ejecuta preflight de seguridad (bloquea si detecta riesgos críticos).
+8. Fase `tests`: instalación segura (`--ignore-scripts`) + ejecución real de tests cuando aplique.
+9. Fase `challenge_requirements`: evalúa cumplimiento del enunciado oficial detectado y requisitos globales.
+10. Runner evalúa el resto de fases en secuencia.
+11. Cada fase se persiste en `review_phase_results`.
+12. Al terminar, backend actualiza `reviews` con score global, informe y recomendación.
 
 ## Estrategia de motor
 

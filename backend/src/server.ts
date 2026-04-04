@@ -4,6 +4,11 @@ import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { pool } from './db';
 import { runPhasedReview, type ReviewSkillDefinition } from './review-runner';
+import {
+  loadActiveChallengeDefinitions,
+  resolveChallengeForReview,
+  syncChallengeDefinitionsFromFiles
+} from './challenges';
 
 type ReviewStatus = 'pending' | 'running' | 'done' | 'failed';
 type Recommendation = 'apto' | 'no_apto' | 'pendiente';
@@ -188,16 +193,34 @@ async function loadActiveSkills(): Promise<ReviewSkillDefinition[]> {
   }));
 }
 
-async function executeReviewJob(id: number, githubUrl: string): Promise<void> {
+async function executeReviewJob(id: number, githubUrl: string, exerciseName: string | null): Promise<void> {
   try {
     const skills = await loadActiveSkills();
+    const challenges = await loadActiveChallengeDefinitions();
+    const resolvedChallenge = resolveChallengeForReview(exerciseName, githubUrl, challenges);
     const result = await runPhasedReview(
       githubUrl,
       skills,
       async (phase) => {
         await upsertPhaseResult(id, phase);
       },
-      { reviewId: id }
+      {
+        reviewId: id,
+        exerciseName: exerciseName || undefined,
+        matchedChallenge: resolvedChallenge.matchedChallenge
+          ? {
+              key: resolvedChallenge.matchedChallenge.key,
+              name: resolvedChallenge.matchedChallenge.name,
+              content: resolvedChallenge.matchedChallenge.content,
+              matchReason: resolvedChallenge.matchReason
+            }
+          : null,
+        globalRequirements: resolvedChallenge.globalRequirements.map((item) => ({
+          key: item.key,
+          name: item.name,
+          content: item.content
+        }))
+      }
     );
 
     await pool.query(
@@ -258,6 +281,20 @@ app.get('/api/skills', async (_, reply) => {
      ORDER BY sort_order ASC, id ASC`
   );
   return reply.send(result.rows);
+});
+
+app.get('/api/challenges', async (_, reply) => {
+  const result = await pool.query(
+    `SELECT id, key, name, kind, aliases, content_format, source_path, active, created_at, updated_at
+     FROM challenge_definitions
+     ORDER BY kind ASC, key ASC`
+  );
+  return reply.send(result.rows);
+});
+
+app.post('/api/challenges/sync', async (_, reply) => {
+  const sync = await syncChallengeDefinitionsFromFiles();
+  return reply.send(sync);
 });
 
 app.post<{
@@ -677,12 +714,12 @@ app.post<{ Params: { id: string } }>('/api/reviews/:id/run', async (request, rep
     return reply.code(400).send({ error: 'id inválido' });
   }
 
-  const found = await pool.query(`SELECT id, github_url, status FROM reviews WHERE id = $1`, [id]);
+  const found = await pool.query(`SELECT id, github_url, exercise_name, status FROM reviews WHERE id = $1`, [id]);
   if (found.rowCount === 0) {
     return reply.code(404).send({ error: 'revisión no encontrada' });
   }
 
-  const review = found.rows[0] as { id: number; github_url: string; status: ReviewStatus };
+  const review = found.rows[0] as { id: number; github_url: string; exercise_name: string | null; status: ReviewStatus };
   if (review.status === 'running') {
     return reply.code(409).send({ error: 'la revisión ya está en ejecución' });
   }
@@ -700,7 +737,7 @@ app.post<{ Params: { id: string } }>('/api/reviews/:id/run', async (request, rep
   );
   await pool.query(`DELETE FROM review_phase_results WHERE review_id = $1`, [id]);
 
-  void executeReviewJob(id, review.github_url);
+  void executeReviewJob(id, review.github_url, review.exercise_name);
 
   return reply.code(202).send({ ok: true, id, status: 'running' });
 });
@@ -722,6 +759,8 @@ async function recoverStaleRunningReviews(): Promise<void> {
 async function start() {
   try {
     await recoverStaleRunningReviews();
+    const sync = await syncChallengeDefinitionsFromFiles();
+    app.log.info({ upserted: sync.upserted, skipped: sync.skipped }, 'Challenge definitions synced');
     await app.listen({ port, host: '0.0.0.0' });
   } catch (error) {
     app.log.error(error);

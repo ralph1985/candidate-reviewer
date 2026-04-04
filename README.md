@@ -19,6 +19,7 @@ Aplicación web para revisar pruebas técnicas de candidatos con ejecución auto
   - `/skills`
 - Gestión de revisiones (`create`, `list`, `update`).
 - Gestión de skills/fases desde UI (key, nombre, prompt, activo, orden).
+- Catálogo de enunciados técnicos versionado en `challenges/pages` y sincronizado a PostgreSQL (`challenge_definitions`).
 - Ejecución automática por fases leyendo skills activas desde PostgreSQL.
 - Persistencia detallada de resultados por fase.
 - Importación histórica de revisiones reales vía `POST /api/imports/historical-review` (JSON normalizado).

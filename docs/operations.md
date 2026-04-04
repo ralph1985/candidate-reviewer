@@ -65,6 +65,12 @@ Skills y fases dinámicas (incremental):
 docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_review_skills.sql
 ```
 
+Skill de cumplimiento del enunciado:
+
+```bash
+docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_challenge_requirements_skill.sql
+```
+
 Reordenar skills por defecto para ejecutar `security` antes de `tests`:
 
 ```bash
@@ -81,6 +87,18 @@ Campos de intake en flujo UI (conclusiones, otras preguntas, buenas prácticas, 
 
 ```bash
 docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_review_intake_fields.sql
+```
+
+Tabla de enunciados oficiales:
+
+```bash
+docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_challenge_definitions.sql
+```
+
+Sincronización de enunciados (se ejecuta también al arrancar backend):
+
+```bash
+curl -X POST http://localhost:3000/api/challenges/sync
 ```
 
 ## Datos ficticios
