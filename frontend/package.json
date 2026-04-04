@@ -9,6 +9,8 @@
     "preview": "astro preview --host 0.0.0.0 --port 4321"
   },
   "dependencies": {
-    "astro": "^5.7.0"
+    "@tailwindcss/vite": "^4.2.2",
+    "astro": "^5.7.0",
+    "tailwindcss": "^4.2.2"
   }
 }
