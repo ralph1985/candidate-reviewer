@@ -82,3 +82,85 @@ Nueva tabla `review_phase_results`:
 - [x] Ejecución real de tests (Node) con logs en fase `tests`
 - [ ] Robustecer prompt/parseo y politicas de reintento para produccion
 - [ ] Configurar auth de Codex CLI en contenedor y validar `engine=codex-cli`
+- [ ] Cargar revisiones reales históricas desde formularios PDF: extraer con ChatGPT a JSON normalizado, leer ese JSON desde la app y persistir candidatos/revisiones/fases en PostgreSQL mediante importador administrable
+
+## Formato JSON objetivo para importación histórica (PDF -> ChatGPT -> app)
+
+```json
+{
+  "source": {
+    "kind": "google-form-pdf",
+    "fileName": "revision-candidato-2026-04-01.pdf",
+    "extractedAt": "2026-04-04T18:25:00Z"
+  },
+  "candidate": {
+    "name": "Nombre Apellidos",
+    "email": "candidato@example.com",
+    "githubUrl": "https://github.com/org/repo",
+    "position": "Frontend Developer",
+    "notes": "Notas opcionales del formulario"
+  },
+  "review": {
+    "status": "completed",
+    "recommendation": "hire",
+    "finalScore": 82,
+    "summary": "Resumen global de la revisión",
+    "reportMarkdown": "Informe completo en markdown",
+    "reviewedAt": "2026-04-01T10:30:00Z"
+  },
+  "phases": [
+    {
+      "phaseKey": "architecture",
+      "status": "done",
+      "score": 78,
+      "summary": "Resumen de arquitectura",
+      "details": {
+        "strengths": ["modularidad"],
+        "risks": ["acoplamiento en capa api"]
+      },
+      "rawOutput": "Texto bruto opcional",
+      "startedAt": "2026-04-01T10:00:00Z",
+      "finishedAt": "2026-04-01T10:10:00Z"
+    },
+    {
+      "phaseKey": "security",
+      "status": "done",
+      "score": 85,
+      "summary": "Resumen de seguridad",
+      "details": {},
+      "rawOutput": "",
+      "startedAt": "2026-04-01T10:11:00Z",
+      "finishedAt": "2026-04-01T10:18:00Z"
+    },
+    {
+      "phaseKey": "tests",
+      "status": "done",
+      "score": 80,
+      "summary": "Resumen de tests",
+      "details": {},
+      "rawOutput": "",
+      "startedAt": "2026-04-01T10:19:00Z",
+      "finishedAt": "2026-04-01T10:25:00Z"
+    },
+    {
+      "phaseKey": "documentation",
+      "status": "done",
+      "score": 88,
+      "summary": "Resumen de documentación",
+      "details": {},
+      "rawOutput": "",
+      "startedAt": "2026-04-01T10:26:00Z",
+      "finishedAt": "2026-04-01T10:30:00Z"
+    }
+  ]
+}
+```
+
+Reglas:
+
+- `candidate.githubUrl` obligatorio.
+- `review.status` admitidos: `pending`, `running`, `completed`, `failed`.
+- `review.recommendation` admitidos: `hire`, `strong-hire`, `no-hire`, `needs-more-signal`.
+- `phases[*].phaseKey` admitidos: `architecture`, `security`, `tests`, `documentation`.
+- `phases[*].status` admitidos: `pending`, `running`, `done`, `failed`.
+- Campos desconocidos se ignorarán en el importador.
