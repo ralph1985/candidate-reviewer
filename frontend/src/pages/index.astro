@@ -26,19 +26,53 @@
         background: radial-gradient(1000px 300px at 20% -50%, #d8e5ff 0%, transparent 60%), var(--bg);
       }
 
-      main {
-        max-width: 980px;
+      .layout {
+        max-width: 1200px;
         margin: 0 auto;
         padding: 24px;
+        display: grid;
+        grid-template-columns: 250px 1fr;
+        gap: 18px;
       }
 
-      h1 {
+      .sidebar {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px;
+        position: sticky;
+        top: 16px;
+        height: fit-content;
+      }
+
+      .brand {
         margin: 0 0 4px;
+        font-size: 20px;
       }
 
-      p.sub {
-        margin: 0 0 24px;
+      .sub {
+        margin: 0 0 14px;
         color: var(--muted);
+        font-size: 13px;
+      }
+
+      .menu {
+        display: grid;
+        gap: 8px;
+      }
+
+      .menu button {
+        text-align: left;
+        width: 100%;
+      }
+
+      .menu button.active {
+        background: var(--primary);
+        color: #fff;
+      }
+
+      .content {
+        min-width: 0;
       }
 
       section {
@@ -46,7 +80,14 @@
         border: 1px solid var(--line);
         border-radius: 12px;
         padding: 16px;
-        margin-bottom: 16px;
+      }
+
+      .panel {
+        display: none;
+      }
+
+      .panel.active {
+        display: block;
       }
 
       form {
@@ -111,6 +152,23 @@
       }
 
       @media (max-width: 900px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          position: static;
+        }
+
+        .menu {
+          grid-template-columns: 1fr 1fr 1fr;
+        }
+
+        .menu button {
+          text-align: center;
+          padding: 8px;
+        }
+
         form,
         .grid-2 {
           grid-template-columns: 1fr;
@@ -119,65 +177,74 @@
     </style>
   </head>
   <body>
-    <main>
-      <h1>Candidate Reviewer</h1>
-      <p class="sub">MVP de revisiones técnicas automáticas</p>
+    <main class="layout">
+      <aside class="sidebar">
+        <h1 class="brand">Candidate Reviewer</h1>
+        <p class="sub">MVP de revisiones técnicas automáticas</p>
+        <nav class="menu" id="menu">
+          <button class="secondary active" data-target="create" type="button">Nueva revisión</button>
+          <button class="secondary" data-target="list" type="button">Revisiones</button>
+          <button class="secondary" data-target="edit" type="button">Actualizar</button>
+        </nav>
+      </aside>
 
-      <section>
-        <h2>Nueva revisión</h2>
-        <form id="create-form">
-          <input id="candidate-name" placeholder="Nombre candidato" required />
-          <input id="github-url" type="url" placeholder="https://github.com/org/repo" required />
-          <button class="primary" type="submit">Crear</button>
-        </form>
-        <p id="create-msg" class="small"></p>
-      </section>
+      <div class="content">
+        <section class="panel active" data-section="create">
+          <h2>Nueva revisión</h2>
+          <form id="create-form">
+            <input id="candidate-name" placeholder="Nombre candidato" required />
+            <input id="github-url" type="url" placeholder="https://github.com/org/repo" required />
+            <button class="primary" type="submit">Crear</button>
+          </form>
+          <p id="create-msg" class="small"></p>
+        </section>
 
-      <section>
-        <h2>Revisiones</h2>
-        <button class="secondary" id="refresh" type="button">Refrescar</button>
-        <div style="overflow:auto; margin-top: 10px;">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Candidato</th>
-                <th>Repositorio</th>
-                <th>Estado</th>
-                <th>Recomendación</th>
-                <th>Creado</th>
-                <th>Acción</th>
-              </tr>
-            </thead>
-            <tbody id="reviews-body"></tbody>
-          </table>
-        </div>
-      </section>
+        <section class="panel" data-section="list">
+          <h2>Revisiones</h2>
+          <button class="secondary" id="refresh" type="button">Refrescar</button>
+          <div style="overflow:auto; margin-top: 10px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Candidato</th>
+                  <th>Repositorio</th>
+                  <th>Estado</th>
+                  <th>Recomendación</th>
+                  <th>Creado</th>
+                  <th>Acción</th>
+                </tr>
+              </thead>
+              <tbody id="reviews-body"></tbody>
+            </table>
+          </div>
+        </section>
 
-      <section>
-        <h2>Actualizar revisión</h2>
-        <div class="grid-2">
-          <input id="edit-id" type="number" min="1" placeholder="ID revisión" />
-          <select id="edit-status">
-            <option value="pending">pending</option>
-            <option value="running">running</option>
-            <option value="done">done</option>
-            <option value="failed">failed</option>
-          </select>
-          <select id="edit-recommendation">
-            <option value="pendiente">pendiente</option>
-            <option value="apto">apto</option>
-            <option value="no_apto">no_apto</option>
-          </select>
-          <input id="edit-scores" placeholder='{"arquitectura": 8, "tests": 7}' />
-        </div>
-        <textarea id="edit-report" placeholder="Informe final"></textarea>
-        <div style="margin-top: 10px; display:flex; gap:10px;">
-          <button class="primary" id="save-review" type="button">Guardar cambios</button>
-          <button class="danger" id="clear-form" type="button">Limpiar</button>
-        </div>
-        <p id="edit-msg" class="small"></p>
-      </section>
+        <section class="panel" data-section="edit">
+          <h2>Actualizar revisión</h2>
+          <div class="grid-2">
+            <input id="edit-id" type="number" min="1" placeholder="ID revisión" />
+            <select id="edit-status">
+              <option value="pending">pending</option>
+              <option value="running">running</option>
+              <option value="done">done</option>
+              <option value="failed">failed</option>
+            </select>
+            <select id="edit-recommendation">
+              <option value="pendiente">pendiente</option>
+              <option value="apto">apto</option>
+              <option value="no_apto">no_apto</option>
+            </select>
+            <input id="edit-scores" placeholder='{"arquitectura": 8, "tests": 7}' />
+          </div>
+          <textarea id="edit-report" placeholder="Informe final"></textarea>
+          <div style="margin-top: 10px; display:flex; gap:10px;">
+            <button class="primary" id="save-review" type="button">Guardar cambios</button>
+            <button class="danger" id="clear-form" type="button">Limpiar</button>
+          </div>
+          <p id="edit-msg" class="small"></p>
+        </section>
+      </div>
     </main>
 
     <script type="module">
@@ -194,13 +261,33 @@
       const saveReviewBtn = document.getElementById('save-review');
       const clearFormBtn = document.getElementById('clear-form');
       const editMsg = document.getElementById('edit-msg');
+      const apiBase = window.location.pathname.startsWith('/cr/') ? '/cr' : '';
+
+      const menuButtons = Array.from(document.querySelectorAll('#menu button[data-target]'));
+      const panels = Array.from(document.querySelectorAll('.panel[data-section]'));
+
+      function showSection(target) {
+        for (const button of menuButtons) {
+          button.classList.toggle('active', button.getAttribute('data-target') === target);
+        }
+        for (const panel of panels) {
+          panel.classList.toggle('active', panel.getAttribute('data-section') === target);
+        }
+      }
+
+      for (const button of menuButtons) {
+        button.addEventListener('click', () => {
+          const target = button.getAttribute('data-target');
+          if (target) showSection(target);
+        });
+      }
 
       const fmtDate = (value) => value ? new Date(value).toLocaleString('es-ES') : '-';
 
       async function loadReviews() {
         reviewsBody.innerHTML = '<tr><td colspan="7" class="small">Cargando...</td></tr>';
         try {
-          const response = await fetch('/api/reviews');
+          const response = await fetch(`${apiBase}/api/reviews`);
           if (!response.ok) throw new Error('No se pudo cargar revisiones');
           const data = await response.json();
 
@@ -227,7 +314,7 @@
           for (const btn of reviewsBody.querySelectorAll('button[data-fill]')) {
             btn.addEventListener('click', async () => {
               const id = Number(btn.getAttribute('data-fill'));
-              const response = await fetch(`/api/reviews/${id}`);
+              const response = await fetch(`${apiBase}/api/reviews/${id}`);
               if (!response.ok) return;
               const detail = await response.json();
               editId.value = String(detail.id);
@@ -236,13 +323,14 @@
               editScores.value = detail.scores ? JSON.stringify(detail.scores) : '';
               editReport.value = detail.final_report || '';
               editMsg.textContent = `Formulario cargado para revisión #${id}`;
+              showSection('edit');
             });
           }
 
           for (const btn of reviewsBody.querySelectorAll('button[data-run]')) {
             btn.addEventListener('click', async () => {
               const id = Number(btn.getAttribute('data-run'));
-              const response = await fetch(`/api/reviews/${id}/run`, {
+              const response = await fetch(`${apiBase}/api/reviews/${id}/run`, {
                 method: 'POST'
               });
               if (!response.ok) {
@@ -250,6 +338,7 @@
                 return;
               }
               editMsg.textContent = `Revisión #${id} lanzada en background.`;
+              showSection('edit');
               await loadReviews();
             });
           }
@@ -265,7 +354,7 @@
 
         createMsg.textContent = 'Guardando...';
 
-        const response = await fetch('/api/reviews', {
+        const response = await fetch(`${apiBase}/api/reviews`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ candidateName, githubUrl })
@@ -279,6 +368,7 @@
         const created = await response.json();
         createMsg.textContent = `Revisión #${created.id} creada.`;
         createForm.reset();
+        showSection('list');
         await loadReviews();
       });
 
@@ -303,7 +393,7 @@
 
         editMsg.textContent = 'Guardando cambios...';
 
-        const response = await fetch(`/api/reviews/${id}`, {
+        const response = await fetch(`${apiBase}/api/reviews/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
