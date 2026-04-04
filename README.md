@@ -1,89 +1,52 @@
 # candidate-reviewer
 
-MVP para revisión técnica automática de candidatos.
+Aplicación web para revisar pruebas técnicas de candidatos con ejecución automática por fases y almacenamiento histórico en PostgreSQL.
 
-Stack:
-- Frontend: Astro (estático)
-- Backend/API: Fastify (Node.js)
+## Stack
+
+- Frontend: Astro + TailwindCSS
+- Backend: Fastify (Node.js)
 - Base de datos: PostgreSQL
+- Runtime recomendado: Docker Compose
 
-## Modelo de datos (MVP)
+## Estado actual
 
-Tabla `reviews`:
-- `candidate_name`
-- `github_url`
-- `status` (`pending`, `running`, `done`, `failed`)
-- `scores` (JSONB)
-- `final_report`
-- `recommendation` (`apto`, `no_apto`, `pendiente`)
-- timestamps (`created_at`, `updated_at`, `started_at`, `finished_at`)
+- Gestión de revisiones (`create`, `list`, `update`).
+- Ejecución automática por fases (`architecture`, `tests`, `security`, `documentation`).
+- Persistencia detallada de resultados por fase.
+- Integración base con Codex CLI (con fallback heurístico si falla o no está autenticado).
 
-## Requisitos
-
-- Node.js 22+
-- PostgreSQL disponible en el VPS
-- Docker (opcional para ejecución en contenedor)
-
-## Configuración rápida
-
-1. Copia variables de entorno:
+## Inicio rápido
 
 ```bash
 cp .env.example .env
+# ajusta DATABASE_URL
+
+docker compose up -d --build
 ```
 
-2. Crea la tabla en PostgreSQL:
+App:
+- local: `http://localhost:3000`
+- detrás de proxy: `https://<tu-host>/cr/`
+
+## Documentación
+
+- Guía general: [docs/README.md](./docs/README.md)
+- Arquitectura: [docs/architecture.md](./docs/architecture.md)
+- API: [docs/api.md](./docs/api.md)
+- Operación y despliegue: [docs/operations.md](./docs/operations.md)
+- Plan por fases con Codex: [docs/codex-phased-review-plan.md](./docs/codex-phased-review-plan.md)
+
+## Scripts útiles
 
 ```bash
-psql "$DATABASE_URL" -f db/init.sql
-```
+# frontend
+cd frontend && npm run dev
 
-3. Instala dependencias:
+# backend
+cd backend && npm run dev
 
-```bash
-cd frontend && npm install
-cd ../backend && npm install
-```
-
-## Desarrollo
-
-Terminal 1 (frontend):
-
-```bash
-cd frontend
-npm run dev
-```
-
-Terminal 2 (backend):
-
-```bash
-cd backend
-npm run dev
-```
-
-- Frontend: `http://localhost:4321`
-- API: `http://localhost:3000`
-
-## Build y ejecución local
-
-```bash
+# build frontend/backend
 cd frontend && npm run build
 cd ../backend && npm run build
-STATIC_DIR=../frontend/dist PORT=3000 npm run start
 ```
-
-## Docker
-
-Construir imagen:
-
-```bash
-docker build -t candidate-reviewer:latest .
-```
-
-Ejecutar contenedor:
-
-```bash
-docker run --rm -p 3000:3000 --env-file .env candidate-reviewer:latest
-```
-
-La app servirá frontend + API desde el mismo puerto (`3000`).
