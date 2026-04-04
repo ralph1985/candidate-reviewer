@@ -243,6 +243,10 @@
             <button class="danger" id="clear-form" type="button">Limpiar</button>
           </div>
           <p id="edit-msg" class="small"></p>
+          <div style="margin-top: 14px;">
+            <h3 style="margin: 0 0 8px;">Fases revisadas</h3>
+            <div id="phase-list" class="small">Selecciona una revisión para ver fases.</div>
+          </div>
         </section>
       </div>
     </main>
@@ -261,6 +265,7 @@
       const saveReviewBtn = document.getElementById('save-review');
       const clearFormBtn = document.getElementById('clear-form');
       const editMsg = document.getElementById('edit-msg');
+      const phaseList = document.getElementById('phase-list');
       const apiBase = window.location.pathname.startsWith('/cr/') ? '/cr' : '';
 
       const menuButtons = Array.from(document.querySelectorAll('#menu button[data-target]'));
@@ -283,6 +288,27 @@
       }
 
       const fmtDate = (value) => value ? new Date(value).toLocaleString('es-ES') : '-';
+
+      async function loadPhases(id) {
+        phaseList.textContent = 'Cargando fases...';
+        try {
+          const response = await fetch(`${apiBase}/api/reviews/${id}/phases`);
+          if (!response.ok) throw new Error('No se pudieron cargar fases');
+          const phases = await response.json();
+          if (!phases.length) {
+            phaseList.textContent = 'Sin fases registradas todavía.';
+            return;
+          }
+          phaseList.innerHTML = phases.map((phase) => `
+            <div style="padding:8px 10px; border:1px solid var(--line); border-radius:8px; margin-bottom:8px; background:#fafcff;">
+              <strong>${phase.phase_key}</strong> · <span class="pill">${phase.status}</span> · score: ${phase.score ?? '-'}
+              <div class="small" style="margin-top:4px;">${phase.summary || '-'}</div>
+            </div>
+          `).join('');
+        } catch {
+          phaseList.textContent = 'Error cargando fases.';
+        }
+      }
 
       async function loadReviews() {
         reviewsBody.innerHTML = '<tr><td colspan="7" class="small">Cargando...</td></tr>';
@@ -323,6 +349,7 @@
               editScores.value = detail.scores ? JSON.stringify(detail.scores) : '';
               editReport.value = detail.final_report || '';
               editMsg.textContent = `Formulario cargado para revisión #${id}`;
+              await loadPhases(id);
               showSection('edit');
             });
           }
@@ -338,6 +365,7 @@
                 return;
               }
               editMsg.textContent = `Revisión #${id} lanzada en background.`;
+              await loadPhases(id);
               showSection('edit');
               await loadReviews();
             });
@@ -410,6 +438,7 @@
         }
 
         editMsg.textContent = `Revisión #${id} actualizada.`;
+        await loadPhases(id);
         await loadReviews();
       });
 
@@ -420,6 +449,7 @@
         editScores.value = '';
         editReport.value = '';
         editMsg.textContent = '';
+        phaseList.textContent = 'Selecciona una revisión para ver fases.';
       });
 
       loadReviews();

@@ -3,14 +3,57 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { pool } from './db';
-import { runAutomatedReview } from './review-runner';
+import { runPhasedReview, type ReviewPhaseKey } from './review-runner';
 
 type ReviewStatus = 'pending' | 'running' | 'done' | 'failed';
 type Recommendation = 'apto' | 'no_apto' | 'pendiente';
 
+async function upsertPhaseResult(
+  reviewId: number,
+  phase: {
+    phaseKey: ReviewPhaseKey;
+    status: 'done' | 'failed';
+    score: number | null;
+    summary: string;
+    details: Record<string, unknown>;
+    rawOutput: string | null;
+    startedAt: Date;
+    finishedAt: Date;
+  }
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO review_phase_results
+      (review_id, phase_key, status, score, summary, details, raw_output, started_at, finished_at)
+     VALUES
+      ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
+     ON CONFLICT (review_id, phase_key)
+     DO UPDATE SET
+      status = EXCLUDED.status,
+      score = EXCLUDED.score,
+      summary = EXCLUDED.summary,
+      details = EXCLUDED.details,
+      raw_output = EXCLUDED.raw_output,
+      started_at = EXCLUDED.started_at,
+      finished_at = EXCLUDED.finished_at`,
+    [
+      reviewId,
+      phase.phaseKey,
+      phase.status,
+      phase.score,
+      phase.summary,
+      JSON.stringify(phase.details),
+      phase.rawOutput,
+      phase.startedAt,
+      phase.finishedAt
+    ]
+  );
+}
+
 async function executeReviewJob(id: number, githubUrl: string): Promise<void> {
   try {
-    const result = await runAutomatedReview(githubUrl);
+    const result = await runPhasedReview(githubUrl, async (phase) => {
+      await upsertPhaseResult(id, phase);
+    });
     await pool.query(
       `UPDATE reviews
        SET status = 'done',
@@ -149,6 +192,23 @@ app.patch<{
   return reply.send(result.rows[0]);
 });
 
+app.get<{ Params: { id: string } }>('/api/reviews/:id/phases', async (request, reply) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return reply.code(400).send({ error: 'id inválido' });
+  }
+
+  const result = await pool.query(
+    `SELECT id, review_id, phase_key, status, score, summary, details, raw_output, started_at, finished_at, created_at, updated_at
+     FROM review_phase_results
+     WHERE review_id = $1
+     ORDER BY created_at ASC`,
+    [id]
+  );
+
+  return reply.send(result.rows);
+});
+
 app.post<{ Params: { id: string } }>('/api/reviews/:id/run', async (request, reply) => {
   const id = Number(request.params.id);
   if (!Number.isInteger(id) || id <= 0) {
@@ -176,6 +236,7 @@ app.post<{ Params: { id: string } }>('/api/reviews/:id/run', async (request, rep
      WHERE id = $1`,
     [id]
   );
+  await pool.query(`DELETE FROM review_phase_results WHERE review_id = $1`, [id]);
 
   void executeReviewJob(id, review.github_url);
 
