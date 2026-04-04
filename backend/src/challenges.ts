@@ -2,7 +2,7 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { pool } from './db';
 
-export type ChallengeKind = 'challenge' | 'global_requirement';
+export type ChallengeKind = 'challenge';
 
 export type ChallengeDefinition = {
   id: number;
@@ -65,14 +65,6 @@ const CHALLENGE_SEEDS: ChallengeSeed[] = [
     contentFormat: 'markdown',
     sourcePath: 'statues.md'
   },
-  {
-    key: 'custom_404_page',
-    name: 'Custom 404 Page',
-    kind: 'global_requirement',
-    aliases: ['404', 'not found', 'page not found', 'custom error page'],
-    contentFormat: 'html',
-    sourcePath: '404.html'
-  }
 ];
 
 function challengesPagesDir(): string {
@@ -175,7 +167,7 @@ export function resolveChallengeForReview(
   globalRequirements: ChallengeDefinition[];
 } {
   const candidates = challenges.filter((item) => item.kind === 'challenge');
-  const globalRequirements = challenges.filter((item) => item.kind === 'global_requirement');
+  const globalRequirements: ChallengeDefinition[] = [];
 
   let best: { challenge: ChallengeDefinition; score: number; reason: string } | null = null;
 

@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS challenge_definitions (
   id BIGSERIAL PRIMARY KEY,
   key TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
-  kind TEXT NOT NULL DEFAULT 'challenge' CHECK (kind IN ('challenge', 'global_requirement')),
+  kind TEXT NOT NULL DEFAULT 'challenge' CHECK (kind IN ('challenge')),
   aliases TEXT[] NOT NULL DEFAULT '{}',
   content_format TEXT NOT NULL DEFAULT 'markdown' CHECK (content_format IN ('markdown', 'html')),
   content TEXT NOT NULL,

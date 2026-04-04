@@ -95,6 +95,12 @@ Tabla de enunciados oficiales:
 docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_challenge_definitions.sql
 ```
 
+Eliminar legado de enunciado 404 (si existía de una versión anterior):
+
+```bash
+docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/remove_404_challenge.sql
+```
+
 Sincronización de enunciados (se ejecuta también al arrancar backend):
 
 ```bash
