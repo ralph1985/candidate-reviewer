@@ -4,10 +4,46 @@ import AppLayout from '../../layouts/AppLayout.astro';
 
 <AppLayout activeNav="new" title="Nueva revisión" description="Alta manual de candidato y repositorio GitHub">
   <section class="rounded-xl border border-slate-200 bg-white p-4">
-    <form class="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto]" id="create-form">
-      <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="candidate-name" placeholder="Nombre candidato" required />
-      <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="github-url" type="url" placeholder="https://github.com/org/repo" required />
-      <button class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white" type="submit">Crear</button>
+    <form class="space-y-5" id="create-form">
+      <fieldset class="grid gap-3 rounded-xl border border-slate-200 p-4 md:grid-cols-2">
+        <legend class="px-1 text-sm font-semibold text-slate-900">Información general</legend>
+        <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="candidate-name" placeholder="Candidato" required />
+        <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="github-url" type="url" placeholder="URL del repositorio" required />
+        <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="deploy-url" type="url" placeholder="URL de despliegue (opcional)" />
+        <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="exercise-name" placeholder="Ejercicio" />
+        <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="reviewer-name" placeholder="Evaluador" />
+        <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="reviewer-email" type="email" placeholder="Email evaluador" />
+        <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-2" id="reviewed-at" type="datetime-local" />
+      </fieldset>
+
+      <fieldset class="rounded-xl border border-slate-200 p-4">
+        <legend class="px-1 text-sm font-semibold text-slate-900">Bloques de evaluación</legend>
+        <ul class="grid list-disc gap-1 pl-5 text-sm text-slate-700 md:grid-cols-2">
+          <li>Instrucciones y README</li>
+          <li>Funcionamiento de la App</li>
+          <li>Desarrollo y organización de código</li>
+          <li>Modelado de datos y persistencia</li>
+          <li>Testing</li>
+          <li>CSS y estilos de la App</li>
+          <li>Accesibilidad</li>
+          <li>Construcción, Integración Contínua y Despliegue</li>
+          <li>Progressive Web App</li>
+          <li>Análisis estático y formateo automático de código</li>
+          <li>Git y Workflow de trabajo</li>
+        </ul>
+        <p class="mt-2 text-xs text-slate-500">Estos bloques se evaluarán y guardarán automáticamente por fases al ejecutar Codex.</p>
+      </fieldset>
+
+      <fieldset class="space-y-3 rounded-xl border border-slate-200 p-4">
+        <legend class="px-1 text-sm font-semibold text-slate-900">Cierre</legend>
+        <textarea class="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="intake-conclusions" placeholder="Conclusiones"></textarea>
+        <textarea class="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="predefined-questions" placeholder="Preguntas predefinidas (una por línea)"></textarea>
+        <textarea class="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="other-questions" placeholder="Otras preguntas para entrevista"></textarea>
+        <textarea class="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="good-practices" placeholder="Buenas prácticas"></textarea>
+        <textarea class="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="design-patterns" placeholder="Patrones de diseño y arquitectura"></textarea>
+      </fieldset>
+
+      <button class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white" type="submit">Crear revisión</button>
     </form>
     <p class="mt-3 text-xs text-slate-500" id="create-msg"></p>
   </section>
@@ -22,12 +58,38 @@ import AppLayout from '../../layouts/AppLayout.astro';
       event.preventDefault();
       const candidateName = document.getElementById('candidate-name').value.trim();
       const githubUrl = document.getElementById('github-url').value.trim();
+      const deployUrl = document.getElementById('deploy-url').value.trim();
+      const exerciseName = document.getElementById('exercise-name').value.trim();
+      const reviewerName = document.getElementById('reviewer-name').value.trim();
+      const reviewerEmail = document.getElementById('reviewer-email').value.trim();
+      const reviewedAt = document.getElementById('reviewed-at').value.trim();
+      const intakeConclusions = document.getElementById('intake-conclusions').value.trim();
+      const predefinedQuestions = document.getElementById('predefined-questions').value
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const intakeOtherQuestions = document.getElementById('other-questions').value.trim();
+      const intakeGoodPractices = document.getElementById('good-practices').value.trim();
+      const intakeDesignPatterns = document.getElementById('design-patterns').value.trim();
 
       createMsg.textContent = 'Guardando...';
       const response = await fetch(`${apiBase}/api/reviews`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ candidateName, githubUrl })
+        body: JSON.stringify({
+          candidateName,
+          githubUrl,
+          deployUrl,
+          exerciseName,
+          reviewerName,
+          reviewerEmail,
+          reviewedAt,
+          intakeConclusions,
+          predefinedQuestions,
+          intakeOtherQuestions,
+          intakeGoodPractices,
+          intakeDesignPatterns
+        })
       });
 
       if (!response.ok) {
@@ -42,4 +104,3 @@ import AppLayout from '../../layouts/AppLayout.astro';
     });
   </script>
 </AppLayout>
-

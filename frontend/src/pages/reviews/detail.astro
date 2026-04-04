@@ -10,6 +10,13 @@ import AppLayout from '../../layouts/AppLayout.astro';
     </div>
 
     <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+      <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-candidate-name" placeholder="Candidato" />
+      <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-github-url" placeholder="URL repositorio" />
+      <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-deploy-url" placeholder="URL despliegue" />
+      <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-exercise-name" placeholder="Ejercicio" />
+      <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-reviewer-name" placeholder="Evaluador" />
+      <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-reviewer-email" placeholder="Email evaluador" />
+      <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-2" id="edit-reviewed-at" type="datetime-local" />
       <select class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-status">
         <option value="pending">pending</option>
         <option value="running">running</option>
@@ -24,6 +31,11 @@ import AppLayout from '../../layouts/AppLayout.astro';
       <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-2" id="edit-scores" placeholder='{"arquitectura": 8, "tests": 7}' />
     </div>
 
+    <textarea class="mt-3 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-intake-conclusions" placeholder="Conclusiones"></textarea>
+    <textarea class="mt-3 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-predefined-questions" placeholder="Preguntas predefinidas (una por línea)"></textarea>
+    <textarea class="mt-3 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-other-questions" placeholder="Otras preguntas para entrevista"></textarea>
+    <textarea class="mt-3 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-good-practices" placeholder="Buenas prácticas"></textarea>
+    <textarea class="mt-3 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-design-patterns" placeholder="Patrones de diseño y arquitectura"></textarea>
     <textarea class="mt-3 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="edit-report" placeholder="Informe final"></textarea>
     <div class="mt-3 flex flex-wrap gap-2">
       <button class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white" id="save-review" type="button">Guardar cambios</button>
@@ -44,9 +56,21 @@ import AppLayout from '../../layouts/AppLayout.astro';
 
     const editId = document.getElementById('edit-id');
     const loadReviewBtn = document.getElementById('load-review');
+    const editCandidateName = document.getElementById('edit-candidate-name');
+    const editGithubUrl = document.getElementById('edit-github-url');
+    const editDeployUrl = document.getElementById('edit-deploy-url');
+    const editExerciseName = document.getElementById('edit-exercise-name');
+    const editReviewerName = document.getElementById('edit-reviewer-name');
+    const editReviewerEmail = document.getElementById('edit-reviewer-email');
+    const editReviewedAt = document.getElementById('edit-reviewed-at');
     const editStatus = document.getElementById('edit-status');
     const editRecommendation = document.getElementById('edit-recommendation');
     const editScores = document.getElementById('edit-scores');
+    const editIntakeConclusions = document.getElementById('edit-intake-conclusions');
+    const editPredefinedQuestions = document.getElementById('edit-predefined-questions');
+    const editOtherQuestions = document.getElementById('edit-other-questions');
+    const editGoodPractices = document.getElementById('edit-good-practices');
+    const editDesignPatterns = document.getElementById('edit-design-patterns');
     const editReport = document.getElementById('edit-report');
     const saveReviewBtn = document.getElementById('save-review');
     const runReviewBtn = document.getElementById('run-review');
@@ -84,9 +108,21 @@ import AppLayout from '../../layouts/AppLayout.astro';
       }
       const detail = await response.json();
       editId.value = String(detail.id);
+      editCandidateName.value = detail.candidate_name || '';
+      editGithubUrl.value = detail.github_url || '';
+      editDeployUrl.value = detail.candidate_deploy_url || '';
+      editExerciseName.value = detail.exercise_name || '';
+      editReviewerName.value = detail.reviewer_name || '';
+      editReviewerEmail.value = detail.reviewer_email || '';
+      editReviewedAt.value = detail.reviewed_at ? new Date(detail.reviewed_at).toISOString().slice(0, 16) : '';
       editStatus.value = detail.status;
       editRecommendation.value = detail.recommendation;
       editScores.value = detail.scores ? JSON.stringify(detail.scores) : '';
+      editIntakeConclusions.value = detail.intake_conclusions || '';
+      editPredefinedQuestions.value = Array.isArray(detail.predefined_questions) ? detail.predefined_questions.join('\n') : '';
+      editOtherQuestions.value = detail.intake_other_questions || '';
+      editGoodPractices.value = detail.intake_good_practices || '';
+      editDesignPatterns.value = detail.intake_design_patterns || '';
       editReport.value = detail.final_report || '';
       editMsg.textContent = `Revisión #${id} cargada.`;
       await loadPhases(id);
@@ -126,6 +162,21 @@ import AppLayout from '../../layouts/AppLayout.astro';
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          candidateName: editCandidateName.value.trim(),
+          githubUrl: editGithubUrl.value.trim(),
+          deployUrl: editDeployUrl.value.trim(),
+          exerciseName: editExerciseName.value.trim(),
+          reviewerName: editReviewerName.value.trim(),
+          reviewerEmail: editReviewerEmail.value.trim(),
+          reviewedAt: editReviewedAt.value.trim(),
+          intakeConclusions: editIntakeConclusions.value.trim(),
+          predefinedQuestions: editPredefinedQuestions.value
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean),
+          intakeOtherQuestions: editOtherQuestions.value.trim(),
+          intakeGoodPractices: editGoodPractices.value.trim(),
+          intakeDesignPatterns: editDesignPatterns.value.trim(),
           status: editStatus.value,
           recommendation: editRecommendation.value,
           scores: parsedScores,
@@ -160,9 +211,21 @@ import AppLayout from '../../layouts/AppLayout.astro';
 
     clearFormBtn.addEventListener('click', () => {
       editId.value = '';
+      editCandidateName.value = '';
+      editGithubUrl.value = '';
+      editDeployUrl.value = '';
+      editExerciseName.value = '';
+      editReviewerName.value = '';
+      editReviewerEmail.value = '';
+      editReviewedAt.value = '';
       editStatus.value = 'pending';
       editRecommendation.value = 'pendiente';
       editScores.value = '';
+      editIntakeConclusions.value = '';
+      editPredefinedQuestions.value = '';
+      editOtherQuestions.value = '';
+      editGoodPractices.value = '';
+      editDesignPatterns.value = '';
       editReport.value = '';
       editMsg.textContent = '';
       phaseList.textContent = 'Selecciona una revisión para ver fases.';
@@ -179,4 +242,3 @@ import AppLayout from '../../layouts/AppLayout.astro';
     }
   </script>
 </AppLayout>
-

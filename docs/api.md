@@ -34,7 +34,16 @@ Body:
 ```json
 {
   "candidateName": "Nombre Apellido",
-  "githubUrl": "https://github.com/org/repo"
+  "githubUrl": "https://github.com/org/repo",
+  "deployUrl": "https://app.example.com",
+  "exerciseName": "Memoria",
+  "reviewerName": "Evaluador",
+  "reviewerEmail": "eval@empresa.com",
+  "intakeConclusions": "Texto inicial de conclusiones",
+  "predefinedQuestions": ["Pregunta 1", "Pregunta 2"],
+  "intakeOtherQuestions": "Preguntas adicionales",
+  "intakeGoodPractices": "Notas de buenas prácticas",
+  "intakeDesignPatterns": "Notas de patrones y arquitectura"
 }
 ```
 
@@ -51,6 +60,17 @@ Body (campos opcionales):
 
 ```json
 {
+  "candidateName": "Nuevo nombre",
+  "githubUrl": "https://github.com/org/repo",
+  "deployUrl": "https://app.example.com",
+  "exerciseName": "Memoria",
+  "reviewerName": "Evaluador",
+  "reviewerEmail": "eval@empresa.com",
+  "intakeConclusions": "Conclusiones",
+  "predefinedQuestions": ["Pregunta 1"],
+  "intakeOtherQuestions": "Preguntas extra",
+  "intakeGoodPractices": "Buenas prácticas",
+  "intakeDesignPatterns": "Patrones/arquitectura",
   "status": "pending|running|done|failed",
   "recommendation": "pendiente|apto|no_apto",
   "scores": { "arquitectura": 8, "tests": 7 },

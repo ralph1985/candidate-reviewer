@@ -7,6 +7,20 @@ import { runPhasedReview, type ReviewSkillDefinition } from './review-runner';
 
 type ReviewStatus = 'pending' | 'running' | 'done' | 'failed';
 type Recommendation = 'apto' | 'no_apto' | 'pendiente';
+type ReviewIntakeBody = {
+  candidateName?: string;
+  githubUrl?: string;
+  deployUrl?: string;
+  exerciseName?: string;
+  reviewerName?: string;
+  reviewerEmail?: string;
+  reviewedAt?: string;
+  intakeConclusions?: string;
+  predefinedQuestions?: string[];
+  intakeOtherQuestions?: string;
+  intakeGoodPractices?: string;
+  intakeDesignPatterns?: string;
+};
 
 type HistoricalImportPayload = {
   metadata?: {
@@ -86,6 +100,37 @@ function sanitizePhaseKey(input: string): string {
     .replace(/^_+|_+$/g, '')
     .slice(0, 64) || 'fase';
 }
+
+function normalizeText(value: unknown): string | null {
+  const text = String(value ?? '').trim();
+  return text.length > 0 ? text : null;
+}
+
+const REVIEW_SELECT_COLUMNS = `
+  id,
+  candidate_name,
+  github_url,
+  candidate_deploy_url,
+  exercise_name,
+  reviewer_name,
+  reviewer_email,
+  reviewed_at,
+  intake_conclusions,
+  intake_other_questions,
+  intake_good_practices,
+  intake_design_patterns,
+  interview_recommended,
+  predefined_questions,
+  import_source,
+  status,
+  scores,
+  final_report,
+  recommendation,
+  created_at,
+  updated_at,
+  started_at,
+  finished_at
+`;
 
 async function upsertPhaseResult(
   reviewId: number,
@@ -198,7 +243,7 @@ app.get('/health', async () => ({ ok: true }));
 
 app.get('/api/reviews', async (_, reply) => {
   const result = await pool.query(
-    `SELECT id, candidate_name, github_url, candidate_deploy_url, exercise_name, reviewer_name, reviewer_email, reviewed_at, interview_recommended, predefined_questions, import_source, status, scores, final_report, recommendation, created_at, updated_at, started_at, finished_at
+    `SELECT ${REVIEW_SELECT_COLUMNS}
      FROM reviews
      ORDER BY created_at DESC
      LIMIT 200`
@@ -307,7 +352,7 @@ app.get<{ Params: { id: string } }>('/api/reviews/:id', async (request, reply) =
   }
 
   const result = await pool.query(
-    `SELECT id, candidate_name, github_url, candidate_deploy_url, exercise_name, reviewer_name, reviewer_email, reviewed_at, interview_recommended, predefined_questions, import_source, status, scores, final_report, recommendation, created_at, updated_at, started_at, finished_at
+    `SELECT ${REVIEW_SELECT_COLUMNS}
      FROM reviews
      WHERE id = $1`,
     [id]
@@ -320,19 +365,57 @@ app.get<{ Params: { id: string } }>('/api/reviews/:id', async (request, reply) =
   return reply.send(result.rows[0]);
 });
 
-app.post<{ Body: { candidateName?: string; githubUrl?: string } }>('/api/reviews', async (request, reply) => {
-  const candidateName = request.body?.candidateName?.trim();
-  const githubUrl = request.body?.githubUrl?.trim();
+app.post<{ Body: ReviewIntakeBody }>('/api/reviews', async (request, reply) => {
+  const candidateName = normalizeText(request.body?.candidateName);
+  const githubUrl = normalizeText(request.body?.githubUrl);
+  const deployUrl = normalizeText(request.body?.deployUrl);
+  const exerciseName = normalizeText(request.body?.exerciseName);
+  const reviewerName = normalizeText(request.body?.reviewerName);
+  const reviewerEmail = normalizeText(request.body?.reviewerEmail);
+  const reviewedAt = parseLegacyDate(normalizeText(request.body?.reviewedAt) ?? undefined);
+  const intakeConclusions = normalizeText(request.body?.intakeConclusions);
+  const predefinedQuestions = normalizeStringArray(request.body?.predefinedQuestions);
+  const intakeOtherQuestions = normalizeText(request.body?.intakeOtherQuestions);
+  const intakeGoodPractices = normalizeText(request.body?.intakeGoodPractices);
+  const intakeDesignPatterns = normalizeText(request.body?.intakeDesignPatterns);
 
   if (!candidateName || !githubUrl) {
     return reply.code(400).send({ error: 'candidateName y githubUrl son obligatorios' });
   }
 
   const result = await pool.query(
-    `INSERT INTO reviews (candidate_name, github_url)
-     VALUES ($1, $2)
-     RETURNING id, candidate_name, github_url, candidate_deploy_url, exercise_name, reviewer_name, reviewer_email, reviewed_at, interview_recommended, predefined_questions, import_source, status, scores, final_report, recommendation, created_at, updated_at, started_at, finished_at`,
-    [candidateName, githubUrl]
+    `INSERT INTO reviews
+      (
+        candidate_name,
+        github_url,
+        candidate_deploy_url,
+        exercise_name,
+        reviewer_name,
+        reviewer_email,
+        reviewed_at,
+        intake_conclusions,
+        predefined_questions,
+        intake_other_questions,
+        intake_good_practices,
+        intake_design_patterns,
+        interview_recommended
+      )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, NULL)
+     RETURNING ${REVIEW_SELECT_COLUMNS}`,
+    [
+      candidateName,
+      githubUrl,
+      deployUrl,
+      exerciseName,
+      reviewerName,
+      reviewerEmail,
+      reviewedAt,
+      intakeConclusions,
+      JSON.stringify(predefinedQuestions),
+      intakeOtherQuestions,
+      intakeGoodPractices,
+      intakeDesignPatterns
+    ]
   );
 
   return reply.code(201).send(result.rows[0]);
@@ -345,6 +428,18 @@ app.patch<{
     scores?: Record<string, unknown> | null;
     finalReport?: string;
     recommendation?: Recommendation;
+    candidateName?: string;
+    githubUrl?: string;
+    deployUrl?: string;
+    exerciseName?: string;
+    reviewerName?: string;
+    reviewerEmail?: string;
+    reviewedAt?: string;
+    intakeConclusions?: string;
+    predefinedQuestions?: string[];
+    intakeOtherQuestions?: string;
+    intakeGoodPractices?: string;
+    intakeDesignPatterns?: string;
   };
 }>('/api/reviews/:id', async (request, reply) => {
   const id = Number(request.params.id);
@@ -356,6 +451,20 @@ app.patch<{
   const scores = request.body.scores ?? null;
   const finalReport = request.body.finalReport ?? null;
   const recommendation = request.body.recommendation;
+  const candidateName = normalizeText(request.body?.candidateName);
+  const githubUrl = normalizeText(request.body?.githubUrl);
+  const deployUrl = normalizeText(request.body?.deployUrl);
+  const exerciseName = normalizeText(request.body?.exerciseName);
+  const reviewerName = normalizeText(request.body?.reviewerName);
+  const reviewerEmail = normalizeText(request.body?.reviewerEmail);
+  const reviewedAtRaw = normalizeText(request.body?.reviewedAt);
+  const reviewedAt = reviewedAtRaw ? parseLegacyDate(reviewedAtRaw) : null;
+  const intakeConclusions = normalizeText(request.body?.intakeConclusions);
+  const intakeOtherQuestions = normalizeText(request.body?.intakeOtherQuestions);
+  const intakeGoodPractices = normalizeText(request.body?.intakeGoodPractices);
+  const intakeDesignPatterns = normalizeText(request.body?.intakeDesignPatterns);
+  const hasPredefinedQuestions = Array.isArray(request.body?.predefinedQuestions);
+  const predefinedQuestions = hasPredefinedQuestions ? normalizeStringArray(request.body?.predefinedQuestions) : null;
 
   if (status && !['pending', 'running', 'done', 'failed'].includes(status)) {
     return reply.code(400).send({ error: 'status inválido' });
@@ -364,25 +473,58 @@ app.patch<{
   if (recommendation && !['apto', 'no_apto', 'pendiente'].includes(recommendation)) {
     return reply.code(400).send({ error: 'recommendation inválido' });
   }
+  if (reviewedAtRaw && !reviewedAt) {
+    return reply.code(400).send({ error: 'reviewedAt inválido' });
+  }
 
   const result = await pool.query(
     `UPDATE reviews
      SET
-       status = COALESCE($2, status),
-       scores = COALESCE($3::jsonb, scores),
-       final_report = COALESCE($4, final_report),
-       recommendation = COALESCE($5, recommendation),
+       candidate_name = COALESCE($2, candidate_name),
+       github_url = COALESCE($3, github_url),
+       candidate_deploy_url = COALESCE($4, candidate_deploy_url),
+       exercise_name = COALESCE($5, exercise_name),
+       reviewer_name = COALESCE($6, reviewer_name),
+       reviewer_email = COALESCE($7, reviewer_email),
+       reviewed_at = COALESCE($8::timestamptz, reviewed_at),
+       intake_conclusions = COALESCE($9, intake_conclusions),
+       predefined_questions = COALESCE($10::jsonb, predefined_questions),
+       intake_other_questions = COALESCE($11, intake_other_questions),
+       intake_good_practices = COALESCE($12, intake_good_practices),
+       intake_design_patterns = COALESCE($13, intake_design_patterns),
+       status = COALESCE($17, status),
+       scores = COALESCE($14::jsonb, scores),
+       final_report = COALESCE($15, final_report),
+       recommendation = COALESCE($16, recommendation),
        started_at = CASE
-         WHEN status <> 'running' AND COALESCE($2, status) = 'running' THEN NOW()
+         WHEN status <> 'running' AND COALESCE($17, status) = 'running' THEN NOW()
          ELSE started_at
        END,
        finished_at = CASE
-         WHEN COALESCE($2, status) IN ('done', 'failed') THEN NOW()
+         WHEN COALESCE($17, status) IN ('done', 'failed') THEN NOW()
          ELSE finished_at
        END
      WHERE id = $1
-     RETURNING id, candidate_name, github_url, candidate_deploy_url, exercise_name, reviewer_name, reviewer_email, reviewed_at, interview_recommended, predefined_questions, import_source, status, scores, final_report, recommendation, created_at, updated_at, started_at, finished_at`,
-    [id, status ?? null, scores ? JSON.stringify(scores) : null, finalReport, recommendation ?? null]
+     RETURNING ${REVIEW_SELECT_COLUMNS}`,
+    [
+      id,
+      candidateName,
+      githubUrl,
+      deployUrl,
+      exerciseName,
+      reviewerName,
+      reviewerEmail,
+      reviewedAt,
+      intakeConclusions,
+      hasPredefinedQuestions ? JSON.stringify(predefinedQuestions) : null,
+      intakeOtherQuestions,
+      intakeGoodPractices,
+      intakeDesignPatterns,
+      scores ? JSON.stringify(scores) : null,
+      finalReport,
+      recommendation ?? null,
+      status ?? null
+    ]
   );
 
   if (result.rowCount === 0) {

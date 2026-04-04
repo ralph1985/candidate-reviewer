@@ -77,6 +77,12 @@ Campos extra para importación histórica (evaluador, deploy, fecha revisión, p
 docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_historical_import_fields.sql
 ```
 
+Campos de intake en flujo UI (conclusiones, otras preguntas, buenas prácticas, patrones/arquitectura):
+
+```bash
+docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_review_intake_fields.sql
+```
+
 ## Datos ficticios
 
 Las revisiones de demo se marcan con prefijo `[FAKE]` en `candidate_name`.
