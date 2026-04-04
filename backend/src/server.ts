@@ -3,9 +3,37 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { pool } from './db';
+import { runAutomatedReview } from './review-runner';
 
 type ReviewStatus = 'pending' | 'running' | 'done' | 'failed';
 type Recommendation = 'apto' | 'no_apto' | 'pendiente';
+
+async function executeReviewJob(id: number, githubUrl: string): Promise<void> {
+  try {
+    const result = await runAutomatedReview(githubUrl);
+    await pool.query(
+      `UPDATE reviews
+       SET status = 'done',
+           scores = $2::jsonb,
+           final_report = $3,
+           recommendation = $4,
+           finished_at = NOW()
+       WHERE id = $1`,
+      [id, JSON.stringify(result.scores), result.finalReport, result.recommendation]
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error inesperado ejecutando revisión automática';
+    await pool.query(
+      `UPDATE reviews
+       SET status = 'failed',
+           final_report = $2,
+           recommendation = 'pendiente',
+           finished_at = NOW()
+       WHERE id = $1`,
+      [id, `Error en revisión automática: ${message}`]
+    );
+  }
+}
 
 const app = Fastify({ logger: true });
 const port = Number(process.env.PORT || 3000);
@@ -121,8 +149,37 @@ app.patch<{
   return reply.send(result.rows[0]);
 });
 
-app.get('/*', async (_, reply) => {
-  return reply.sendFile('index.html');
+app.post<{ Params: { id: string } }>('/api/reviews/:id/run', async (request, reply) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return reply.code(400).send({ error: 'id inválido' });
+  }
+
+  const found = await pool.query(`SELECT id, github_url, status FROM reviews WHERE id = $1`, [id]);
+  if (found.rowCount === 0) {
+    return reply.code(404).send({ error: 'revisión no encontrada' });
+  }
+
+  const review = found.rows[0] as { id: number; github_url: string; status: ReviewStatus };
+  if (review.status === 'running') {
+    return reply.code(409).send({ error: 'la revisión ya está en ejecución' });
+  }
+
+  await pool.query(
+    `UPDATE reviews
+     SET status = 'running',
+         recommendation = 'pendiente',
+         scores = NULL,
+         final_report = 'Revisión en progreso...',
+         started_at = NOW(),
+         finished_at = NULL
+     WHERE id = $1`,
+    [id]
+  );
+
+  void executeReviewJob(id, review.github_url);
+
+  return reply.code(202).send({ ok: true, id, status: 'running' });
 });
 
 async function start() {

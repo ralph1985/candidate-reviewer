@@ -217,7 +217,10 @@
               <td><span class="pill">${review.status}</span></td>
               <td>${review.recommendation}</td>
               <td>${fmtDate(review.created_at)}</td>
-              <td><button data-fill="${review.id}" type="button">Editar</button></td>
+              <td>
+                <button data-fill="${review.id}" type="button">Editar</button>
+                <button data-run="${review.id}" type="button">Run IA</button>
+              </td>
             </tr>
           `).join('');
 
@@ -233,6 +236,21 @@
               editScores.value = detail.scores ? JSON.stringify(detail.scores) : '';
               editReport.value = detail.final_report || '';
               editMsg.textContent = `Formulario cargado para revisión #${id}`;
+            });
+          }
+
+          for (const btn of reviewsBody.querySelectorAll('button[data-run]')) {
+            btn.addEventListener('click', async () => {
+              const id = Number(btn.getAttribute('data-run'));
+              const response = await fetch(`/api/reviews/${id}/run`, {
+                method: 'POST'
+              });
+              if (!response.ok) {
+                editMsg.textContent = `No se pudo lanzar la revisión #${id}.`;
+                return;
+              }
+              editMsg.textContent = `Revisión #${id} lanzada en background.`;
+              await loadReviews();
             });
           }
         } catch (error) {
