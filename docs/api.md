@@ -38,6 +38,11 @@ Body:
 }
 ```
 
+Notas:
+
+- Esta creación manual usa campos mínimos.
+- Para carga histórica completa (evaluador, deploy, ejercicio, fases, preguntas), usar el endpoint de importación.
+
 ### Actualizar revisión
 
 `PATCH /api/reviews/:id`
@@ -58,6 +63,43 @@ Body (campos opcionales):
 `POST /api/reviews/:id/run`
 
 - Devuelve `202` cuando lanza ejecución en background.
+
+## Importación histórica
+
+### Importar revisión histórica desde JSON normalizado
+
+`POST /api/imports/historical-review`
+
+Body (resumen):
+
+```json
+{
+  "metadata": { "evaluador": "Nombre", "email": "mail@dominio.com", "fecha": "2025-08-08 13:03" },
+  "candidato": {
+    "nombre": "Nombre Candidato",
+    "repositorio": "https://github.com/org/repo",
+    "deploy": "https://app.example.com",
+    "ejercicio": "Memoria"
+  },
+  "evaluacion": {
+    "readme": { "puntuacion": 1, "comentarios": ["..."] },
+    "testing": { "puntuacion": 3, "comentarios": ["..."] }
+  },
+  "conclusion": { "entrevista": true, "comentarios": ["..."] },
+  "preguntas_predefinidas": ["..."]
+}
+```
+
+Reglas:
+
+- Obligatorios: `candidato.nombre`, `candidato.repositorio`.
+- `conclusion.entrevista=true` mapea a `recommendation=apto`.
+- `conclusion.entrevista=false` mapea a `recommendation=no_apto`.
+- Cada bloque de `evaluacion` se guarda como fila en `review_phase_results` (`phase_key` normalizada).
+
+Respuesta:
+
+- `201` con objeto `{ review, phases }`.
 
 ## Fases
 

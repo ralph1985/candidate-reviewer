@@ -82,7 +82,8 @@ Nueva tabla `review_phase_results`:
 - [x] Ejecución real de tests (Node) con logs en fase `tests`
 - [ ] Robustecer prompt/parseo y politicas de reintento para produccion
 - [ ] Configurar auth de Codex CLI en contenedor y validar `engine=codex-cli`
-- [ ] Cargar revisiones reales históricas desde formularios PDF: extraer con ChatGPT a JSON normalizado, leer ese JSON desde la app y persistir candidatos/revisiones/fases en PostgreSQL mediante importador administrable
+- [x] Importador manual de revisiones históricas desde JSON normalizado (`POST /api/imports/historical-review`)
+- [ ] Extracción PDF -> JSON normalizado con ChatGPT e integración asistida en la app
 
 ## Formato JSON objetivo para importación histórica (PDF -> ChatGPT -> app)
 

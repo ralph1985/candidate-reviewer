@@ -11,12 +11,14 @@
 2. Backend (`backend/`)
 - Fastify.
 - Endpoints REST para revisiones y fases.
+- Endpoint de importación histórica (`POST /api/imports/historical-review`) para cargar JSON normalizado de formularios previos.
 - Runner de revisión con flujo por fases.
 
 3. Base de datos (PostgreSQL)
 - Tabla `reviews` para estado global.
 - Tabla `review_phase_results` para detalle por fase.
 - Tabla `review_skills` para definir fases/prompt administrables.
+- `reviews` también guarda metadatos de histórico importado: evaluador, email, fecha original (`reviewed_at`), deploy, ejercicio, preguntas predefinidas e `import_source`.
 
 4. Infraestructura
 - Contenedor único para app (frontend estático servido por backend).

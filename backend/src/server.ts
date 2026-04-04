@@ -8,6 +8,85 @@ import { runPhasedReview, type ReviewSkillDefinition } from './review-runner';
 type ReviewStatus = 'pending' | 'running' | 'done' | 'failed';
 type Recommendation = 'apto' | 'no_apto' | 'pendiente';
 
+type HistoricalImportPayload = {
+  metadata?: {
+    evaluador?: string;
+    email?: string;
+    fecha?: string;
+  };
+  candidato?: {
+    nombre?: string;
+    repositorio?: string;
+    deploy?: string;
+    ejercicio?: string;
+  };
+  evaluacion?: Record<
+    string,
+    {
+      puntuacion?: number;
+      [key: string]: unknown;
+    }
+  >;
+  conclusion?: {
+    entrevista?: boolean;
+    comentarios?: unknown;
+  };
+  preguntas_predefinidas?: unknown;
+};
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseLegacyDate(raw: string | undefined): Date | null {
+  if (!raw) return null;
+  const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+  const withSeconds = normalized.length === 16 ? `${normalized}:00` : normalized;
+  const withTimezone = /[zZ]|[+-]\d{2}:\d{2}$/.test(withSeconds) ? withSeconds : `${withSeconds}Z`;
+  const date = new Date(withTimezone);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeRecommendation(interview: boolean | undefined): Recommendation {
+  if (typeof interview !== 'boolean') return 'pendiente';
+  return interview ? 'apto' : 'no_apto';
+}
+
+function normalizeStringArray(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((item) => String(item ?? '').trim())
+    .filter((item) => item.length > 0);
+}
+
+function buildConclusionReport(comments: string[]): string | null {
+  if (comments.length === 0) return null;
+  return ['## Conclusión', '', ...comments.map((comment) => `- ${comment}`)].join('\n');
+}
+
+function buildPhaseSummary(phase: Record<string, unknown>): string {
+  const comments = normalizeStringArray(phase.comentarios);
+  const oks = normalizeStringArray(phase.oks);
+  const kos = normalizeStringArray(phase.kos);
+  const bonus = normalizeStringArray(phase.bonus);
+  const summaryParts: string[] = [];
+  if (comments.length > 0) summaryParts.push(`Comentarios: ${comments.slice(0, 2).join(' | ')}`);
+  if (oks.length > 0) summaryParts.push(`OKs: ${oks.slice(0, 2).join(' | ')}`);
+  if (kos.length > 0) summaryParts.push(`KOs: ${kos.slice(0, 2).join(' | ')}`);
+  if (bonus.length > 0) summaryParts.push(`Bonus: ${bonus.slice(0, 2).join(' | ')}`);
+  return summaryParts.join(' || ') || 'Fase importada desde evaluación histórica';
+}
+
+function sanitizePhaseKey(input: string): string {
+  return input
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 64) || 'fase';
+}
+
 async function upsertPhaseResult(
   reviewId: number,
   phase: {
@@ -119,7 +198,7 @@ app.get('/health', async () => ({ ok: true }));
 
 app.get('/api/reviews', async (_, reply) => {
   const result = await pool.query(
-    `SELECT id, candidate_name, github_url, status, scores, final_report, recommendation, created_at, updated_at, started_at, finished_at
+    `SELECT id, candidate_name, github_url, candidate_deploy_url, exercise_name, reviewer_name, reviewer_email, reviewed_at, interview_recommended, predefined_questions, import_source, status, scores, final_report, recommendation, created_at, updated_at, started_at, finished_at
      FROM reviews
      ORDER BY created_at DESC
      LIMIT 200`
@@ -228,7 +307,7 @@ app.get<{ Params: { id: string } }>('/api/reviews/:id', async (request, reply) =
   }
 
   const result = await pool.query(
-    `SELECT id, candidate_name, github_url, status, scores, final_report, recommendation, created_at, updated_at, started_at, finished_at
+    `SELECT id, candidate_name, github_url, candidate_deploy_url, exercise_name, reviewer_name, reviewer_email, reviewed_at, interview_recommended, predefined_questions, import_source, status, scores, final_report, recommendation, created_at, updated_at, started_at, finished_at
      FROM reviews
      WHERE id = $1`,
     [id]
@@ -252,7 +331,7 @@ app.post<{ Body: { candidateName?: string; githubUrl?: string } }>('/api/reviews
   const result = await pool.query(
     `INSERT INTO reviews (candidate_name, github_url)
      VALUES ($1, $2)
-     RETURNING id, candidate_name, github_url, status, scores, final_report, recommendation, created_at, updated_at, started_at, finished_at`,
+     RETURNING id, candidate_name, github_url, candidate_deploy_url, exercise_name, reviewer_name, reviewer_email, reviewed_at, interview_recommended, predefined_questions, import_source, status, scores, final_report, recommendation, created_at, updated_at, started_at, finished_at`,
     [candidateName, githubUrl]
   );
 
@@ -302,7 +381,7 @@ app.patch<{
          ELSE finished_at
        END
      WHERE id = $1
-     RETURNING id, candidate_name, github_url, status, scores, final_report, recommendation, created_at, updated_at, started_at, finished_at`,
+     RETURNING id, candidate_name, github_url, candidate_deploy_url, exercise_name, reviewer_name, reviewer_email, reviewed_at, interview_recommended, predefined_questions, import_source, status, scores, final_report, recommendation, created_at, updated_at, started_at, finished_at`,
     [id, status ?? null, scores ? JSON.stringify(scores) : null, finalReport, recommendation ?? null]
   );
 
@@ -328,6 +407,126 @@ app.get<{ Params: { id: string } }>('/api/reviews/:id/phases', async (request, r
   );
 
   return reply.send(result.rows);
+});
+
+app.post<{ Body: HistoricalImportPayload }>('/api/imports/historical-review', async (request, reply) => {
+  const payload = request.body;
+  const candidateName = payload?.candidato?.nombre?.trim();
+  const githubUrl = payload?.candidato?.repositorio?.trim();
+
+  if (!candidateName || !githubUrl) {
+    return reply.code(400).send({ error: 'candidato.nombre y candidato.repositorio son obligatorios' });
+  }
+
+  const evaluationEntries = isObject(payload?.evaluacion) ? Object.entries(payload.evaluacion) : [];
+  const reviewedAt = parseLegacyDate(payload?.metadata?.fecha);
+  const recommendation = normalizeRecommendation(payload?.conclusion?.entrevista);
+  const conclusionComments = normalizeStringArray(payload?.conclusion?.comentarios);
+  const finalReport = buildConclusionReport(conclusionComments);
+
+  const phaseScores = evaluationEntries
+    .map(([, value]) => Number(value?.puntuacion))
+    .filter((score) => Number.isFinite(score));
+  const avgScore = phaseScores.length > 0
+    ? Number((phaseScores.reduce((acc, score) => acc + score, 0) / phaseScores.length).toFixed(2))
+    : null;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const reviewInsert = await client.query(
+      `INSERT INTO reviews
+        (
+          candidate_name,
+          github_url,
+          candidate_deploy_url,
+          exercise_name,
+          reviewer_name,
+          reviewer_email,
+          reviewed_at,
+          interview_recommended,
+          predefined_questions,
+          import_source,
+          status,
+          scores,
+          final_report,
+          recommendation,
+          started_at,
+          finished_at
+        )
+       VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, 'done', $11::jsonb, $12, $13, $14, $15)
+       RETURNING id, candidate_name, github_url, candidate_deploy_url, exercise_name, reviewer_name, reviewer_email, reviewed_at, interview_recommended, predefined_questions, import_source, status, scores, final_report, recommendation, created_at, updated_at, started_at, finished_at`,
+      [
+        candidateName,
+        githubUrl,
+        payload?.candidato?.deploy?.trim() || null,
+        payload?.candidato?.ejercicio?.trim() || null,
+        payload?.metadata?.evaluador?.trim() || null,
+        payload?.metadata?.email?.trim() || null,
+        reviewedAt,
+        typeof payload?.conclusion?.entrevista === 'boolean' ? payload.conclusion.entrevista : null,
+        JSON.stringify(normalizeStringArray(payload?.preguntas_predefinidas)),
+        JSON.stringify({
+          kind: 'historical-json-manual',
+          format: 'legacy-es-v1',
+          importedAt: new Date().toISOString(),
+          reviewerEmail: payload?.metadata?.email?.trim() || null
+        }),
+        JSON.stringify({
+          promedio: avgScore,
+          total_bloques: phaseScores.length
+        }),
+        finalReport,
+        recommendation,
+        reviewedAt,
+        reviewedAt
+      ]
+    );
+
+    const review = reviewInsert.rows[0] as { id: number };
+
+    for (const [rawKey, rawPhase] of evaluationEntries) {
+      const phase = isObject(rawPhase) ? rawPhase : {};
+      const score = Number(phase.puntuacion);
+      await client.query(
+        `INSERT INTO review_phase_results
+          (review_id, phase_key, status, score, summary, details, raw_output, started_at, finished_at)
+         VALUES
+          ($1, $2, 'done', $3, $4, $5::jsonb, NULL, $6, $7)`,
+        [
+          review.id,
+          sanitizePhaseKey(rawKey),
+          Number.isFinite(score) ? score : null,
+          buildPhaseSummary(phase),
+          JSON.stringify(phase),
+          reviewedAt,
+          reviewedAt
+        ]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    const phasesResult = await pool.query(
+      `SELECT id, review_id, phase_key, status, score, summary, details, raw_output, started_at, finished_at, created_at, updated_at
+       FROM review_phase_results
+       WHERE review_id = $1
+       ORDER BY created_at ASC`,
+      [review.id]
+    );
+
+    return reply.code(201).send({
+      review: reviewInsert.rows[0],
+      phases: phasesResult.rows
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 });
 
 app.post<{ Params: { id: string } }>('/api/reviews/:id/run', async (request, reply) => {

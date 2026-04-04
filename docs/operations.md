@@ -71,6 +71,12 @@ Reordenar skills por defecto para ejecutar `security` antes de `tests`:
 docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/reorder_security_before_tests.sql
 ```
 
+Campos extra para importación histórica (evaluador, deploy, fecha revisión, preguntas, source):
+
+```bash
+docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_historical_import_fields.sql
+```
+
 ## Datos ficticios
 
 Las revisiones de demo se marcan con prefijo `[FAKE]` en `candidate_name`.
