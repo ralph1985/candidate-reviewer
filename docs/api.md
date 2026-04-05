@@ -15,6 +15,16 @@ Respuesta:
 { "ok": true }
 ```
 
+## Runtime config
+
+`GET /api/runtime-config`
+
+Respuesta (ejemplo):
+
+```json
+{ "codexCliTimeoutMs": 420000 }
+```
+
 ## Revisiones
 
 ### Listar revisiones
@@ -71,7 +81,7 @@ Body (campos opcionales):
   "intakeOtherQuestions": "Preguntas extra",
   "intakeGoodPractices": "Buenas prácticas",
   "intakeDesignPatterns": "Patrones/arquitectura",
-  "status": "pending|running|done|failed",
+  "status": "pending|running|done|failed|cancelled",
   "recommendation": "pendiente|apto|no_apto",
   "scores": { "arquitectura": 8, "tests": 7 },
   "finalReport": "texto"
@@ -83,6 +93,14 @@ Body (campos opcionales):
 `POST /api/reviews/:id/run`
 
 - Devuelve `202` cuando lanza ejecución en background.
+- Devuelve `409` si ya existe otra revisión en `running`.
+
+### Parar revisión automática
+
+`POST /api/reviews/:id/stop`
+
+- Devuelve `202` cuando consigue abortar la ejecución en curso.
+- Si la revisión no está en `running`, devuelve `409`.
 
 ## Importación histórica
 
@@ -189,6 +207,8 @@ Body (todo opcional):
 
 `GET /api/challenges`
 
+Incluye campos como `public_url` para enlazar al enunciado público enviado al candidato.
+
 ### Resincronizar enunciados desde `challenges/pages`
 
 `POST /api/challenges/sync`
@@ -197,7 +217,7 @@ Respuesta:
 
 ```json
 {
-  "upserted": 6,
+  "upserted": 5,
   "skipped": []
 }
 ```

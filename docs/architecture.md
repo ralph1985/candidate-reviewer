@@ -6,7 +6,7 @@
 - Astro (render estático).
 - TailwindCSS para UI.
 - Layout compartido con sidebar/drawer responsive.
-- Rutas separadas por dominio funcional (`/`, `/reviews/new`, `/reviews`, `/reviews/detail`, `/skills`).
+- Rutas separadas por dominio funcional (`/`, `/reviews/new`, `/reviews`, `/reviews/detail`, `/skills`, `/challenges`).
 
 2. Backend (`backend/`)
 - Fastify.
@@ -32,15 +32,17 @@
 1. Usuario crea revisión (`POST /api/reviews`).
 2. Usuario lanza ejecución (`POST /api/reviews/:id/run`).
 3. Backend marca revisión en `running` y limpia fases previas.
-4. Backend carga skills activas de `review_skills` (ordenadas).
-5. Backend detecta la prueba objetivo combinando `exercise_name` y URL de repositorio contra `challenge_definitions`.
-6. Runner clona repo en workspace persistente por review (`review-<id>`).
-7. Antes de instalar dependencias, ejecuta preflight de seguridad (bloquea si detecta riesgos críticos).
-8. Fase `tests`: instalación segura (`--ignore-scripts`) + ejecución real de tests cuando aplique.
-9. Fase `challenge_requirements`: evalúa cumplimiento del enunciado oficial detectado.
-10. Runner evalúa el resto de fases en secuencia.
-11. Cada fase se persiste en `review_phase_results`.
-12. Al terminar, backend actualiza `reviews` con score global, informe y recomendación.
+4. Backend aplica lock de lanzamiento + validación global: solo puede existir una review en `running`.
+5. Backend carga skills activas de `review_skills` (ordenadas).
+6. Backend detecta la prueba objetivo combinando `exercise_name` y URL de repositorio contra `challenge_definitions`.
+7. Runner clona repo en workspace persistente por review (`review-<id>`).
+8. Antes de instalar dependencias, ejecuta preflight de seguridad (bloquea si detecta riesgos críticos).
+9. Fase `tests`: instalación segura (`--ignore-scripts`) + ejecución real de tests cuando aplique.
+10. Fase `challenge_requirements`: evalúa cumplimiento del enunciado oficial detectado.
+11. Runner evalúa el resto de fases en secuencia.
+12. Cada fase se persiste en `review_phase_results`.
+13. Al terminar, backend actualiza `reviews` con score global, informe y recomendación.
+14. Si el usuario pulsa `Stop IA`, el backend aborta la ejecución y la review pasa a `cancelled`.
 
 ## Estrategia de motor
 

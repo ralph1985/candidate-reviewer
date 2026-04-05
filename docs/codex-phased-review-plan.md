@@ -87,6 +87,9 @@ Nueva tabla `review_phase_results`:
 
 ## Formato JSON objetivo para importación histórica (PDF -> ChatGPT -> app)
 
+Nota: este bloque es un objetivo de evolución (no es el contrato actual de `POST /api/imports/historical-review`).
+El contrato implementado hoy está documentado en `docs/api.md` bajo "Importación histórica".
+
 ```json
 {
   "source": {

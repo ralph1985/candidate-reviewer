@@ -17,6 +17,7 @@ Aplicación web para revisar pruebas técnicas de candidatos con ejecución auto
   - `/reviews`
   - `/reviews/detail?id=<id>`
   - `/skills`
+  - `/challenges`
 - Gestión de revisiones (`create`, `list`, `update`).
 - Gestión de skills/fases desde UI (key, nombre, prompt, activo, orden).
 - Catálogo de enunciados técnicos versionado en `challenges/pages` y sincronizado a PostgreSQL (`challenge_definitions`).
@@ -26,14 +27,15 @@ Aplicación web para revisar pruebas técnicas de candidatos con ejecución auto
 - Workspace persistente por revisión en contenedor (`/var/candidate-reviewer/workspaces/review-<id>` por defecto).
 - Preflight de seguridad antes de instalación de dependencias y ejecución real de tests en fase `tests`.
 - Integración base con Codex CLI (con fallback heurístico si falla o no está autenticado).
+- Ejecución de IA con lock global (solo una revisión `running` a la vez) y endpoint de parada (`POST /api/reviews/:id/stop`).
+- Challenges con URL oficial asociada para abrir el enunciado real enviado al candidato.
 
 ## Inicio rápido
 
 ```bash
 cp .env.example .env
-# ajusta DATABASE_URL
-
-docker compose up -d --build
+# instalación local con PostgreSQL incluido
+docker compose -f docker-compose.local.yml up -d --build
 ```
 
 App:
@@ -46,6 +48,7 @@ App:
 - Arquitectura: [docs/architecture.md](./docs/architecture.md)
 - API: [docs/api.md](./docs/api.md)
 - Operación y despliegue: [docs/operations.md](./docs/operations.md)
+- Instalación local en PC (revisor): [docs/local-install.md](./docs/local-install.md)
 - Plan por fases con Codex: [docs/codex-phased-review-plan.md](./docs/codex-phased-review-plan.md)
 
 ## Scripts útiles

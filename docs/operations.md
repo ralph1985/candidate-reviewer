@@ -23,6 +23,14 @@ cd /home/monis/apps/candidate-reviewer
 docker compose up -d --build
 ```
 
+Instalación local rápida (incluye PostgreSQL):
+
+```bash
+cd /home/monis/apps/candidate-reviewer
+cp .env.example .env
+docker compose -f docker-compose.local.yml up -d --build
+```
+
 ## Ver estado
 
 ```bash
@@ -38,12 +46,14 @@ curl http://localhost:3000/health
   - `http://localhost:3000/reviews`
   - `http://localhost:3000/reviews/detail?id=<id>`
   - `http://localhost:3000/skills`
+  - `http://localhost:3000/challenges`
 - Detrás de proxy con prefijo `/cr`:
   - `https://<host>/cr/`
   - `https://<host>/cr/reviews/new`
   - `https://<host>/cr/reviews`
   - `https://<host>/cr/reviews/detail?id=<id>`
   - `https://<host>/cr/skills`
+  - `https://<host>/cr/challenges`
 
 ## Migraciones SQL
 
@@ -134,6 +144,7 @@ docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/delet
 1. La revisión queda en `running` mucho tiempo.
 - Revisar logs del contenedor.
 - Verificar conectividad a GitHub y timeout.
+- Recordar que solo puede haber una revisión en `running` a la vez (lock global).
 
 2. Las fases salen con `engine=heuristic-fallback`.
 - Comprobar que `codex` existe en contenedor.

@@ -7,7 +7,7 @@ services:
     env_file:
       - .env
     volumes:
-      - /home/monis/.codex:/root/.codex
+      - ${HOME}/.codex:/root/.codex
     ports:
       - "3000:3000"
     networks:

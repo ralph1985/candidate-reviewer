@@ -1,0 +1,38 @@
+services:
+  candidate-reviewer-db:
+    image: postgres:16-alpine
+    container_name: candidate-reviewer-db
+    environment:
+      POSTGRES_DB: candidate_reviewer
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - candidate-reviewer-db-data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d candidate_reviewer"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  candidate-reviewer:
+    build:
+      context: .
+    image: candidate-reviewer:latest
+    container_name: candidate-reviewer
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${LOCAL_DATABASE_URL:-postgres://postgres:postgres@candidate-reviewer-db:5432/candidate_reviewer}
+    depends_on:
+      candidate-reviewer-db:
+        condition: service_healthy
+    volumes:
+      - ${HOME}/.codex:/root/.codex
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+volumes:
+  candidate-reviewer-db-data:
