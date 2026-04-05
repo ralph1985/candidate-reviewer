@@ -142,6 +142,14 @@ import AppLayout from '../../layouts/AppLayout.astro';
       runUpdatedAt.textContent = `Última actualización: ${new Date().toLocaleTimeString()}`;
     }
 
+    function setRunButtonDisabled(disabled, label = null) {
+      runReviewBtn.disabled = disabled;
+      runReviewBtn.classList.toggle('cursor-not-allowed', disabled);
+      runReviewBtn.classList.toggle('opacity-70', disabled);
+      if (label) runReviewBtn.textContent = label;
+      else runReviewBtn.textContent = 'Run IA';
+    }
+
     async function getActiveSkillCount() {
       if (!activeSkillCountPromise) {
         activeSkillCountPromise = fetch(`${apiBase}/api/skills`)
@@ -204,6 +212,7 @@ import AppLayout from '../../layouts/AppLayout.astro';
       editReport.value = detail.final_report || '';
       runStateBadge.className = statusBadgeClass(detail.status);
       runStateBadge.textContent = `Estado: ${detail.status || '-'}`;
+      setRunButtonDisabled(detail.status === 'running', detail.status === 'running' ? 'En progreso' : 'Run IA');
 
       if (mode === 'runtime') return;
 
@@ -346,10 +355,18 @@ import AppLayout from '../../layouts/AppLayout.astro';
         editMsg.textContent = 'Indica un ID válido.';
         return;
       }
+      if (editStatus.value === 'running' || runReviewBtn.disabled) {
+        editMsg.textContent = `La revisión #${id} ya está en ejecución.`;
+        return;
+      }
+      setRunButtonDisabled(true, 'En progreso');
       editMsg.textContent = `Lanzando revisión #${id}...`;
       const response = await fetch(`${apiBase}/api/reviews/${id}/run`, { method: 'POST' });
       if (!response.ok) {
-        editMsg.textContent = `No se pudo lanzar la revisión #${id}.`;
+        editMsg.textContent = response.status === 409
+          ? `La revisión #${id} ya está en ejecución.`
+          : `No se pudo lanzar la revisión #${id}.`;
+        setRunButtonDisabled(editStatus.value === 'running', editStatus.value === 'running' ? 'En progreso' : 'Run IA');
         return;
       }
 
@@ -378,6 +395,7 @@ import AppLayout from '../../layouts/AppLayout.astro';
       editDesignPatterns.value = '';
       editReport.value = '';
       editMsg.textContent = '';
+      setRunButtonDisabled(false, 'Run IA');
       runStateBadge.className = statusBadgeClass(null);
       runStateBadge.textContent = 'Estado: -';
       runProgress.textContent = 'Progreso: -';
