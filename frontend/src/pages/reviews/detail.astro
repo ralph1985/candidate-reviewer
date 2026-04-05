@@ -46,7 +46,15 @@ import AppLayout from '../../layouts/AppLayout.astro';
   </section>
 
   <section class="rounded-xl border border-slate-200 bg-white p-4">
-    <h3 class="text-sm font-semibold text-slate-900">Fases revisadas</h3>
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <h3 class="text-sm font-semibold text-slate-900">Fases revisadas</h3>
+      <button class="rounded-lg bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700" id="refresh-live" type="button">Refrescar ahora</button>
+    </div>
+    <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
+      <span class="rounded-full bg-slate-200 px-2 py-0.5 font-semibold text-slate-700" id="run-state-badge">Estado: -</span>
+      <span class="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600" id="run-progress">Progreso: -</span>
+      <span class="text-slate-500" id="run-updated-at">Última actualización: -</span>
+    </div>
     <div class="mt-2 text-xs text-slate-500" id="phase-list">Selecciona una revisión para ver fases.</div>
   </section>
 
@@ -77,6 +85,53 @@ import AppLayout from '../../layouts/AppLayout.astro';
     const clearFormBtn = document.getElementById('clear-form');
     const editMsg = document.getElementById('edit-msg');
     const phaseList = document.getElementById('phase-list');
+    const refreshLiveBtn = document.getElementById('refresh-live');
+    const runStateBadge = document.getElementById('run-state-badge');
+    const runProgress = document.getElementById('run-progress');
+    const runUpdatedAt = document.getElementById('run-updated-at');
+
+    const POLL_INTERVAL_MS = 3000;
+    let pollTimer = null;
+    let currentPollingId = null;
+    let activeSkillCountPromise = null;
+
+    function statusBadgeClass(status) {
+      if (status === 'running') return 'rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800';
+      if (status === 'done') return 'rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800';
+      if (status === 'failed') return 'rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-800';
+      return 'rounded-full bg-slate-200 px-2 py-0.5 font-semibold text-slate-700';
+    }
+
+    function setUpdatedNow() {
+      runUpdatedAt.textContent = `Última actualización: ${new Date().toLocaleTimeString()}`;
+    }
+
+    async function getActiveSkillCount() {
+      if (!activeSkillCountPromise) {
+        activeSkillCountPromise = fetch(`${apiBase}/api/skills`)
+          .then((response) => (response.ok ? response.json() : []))
+          .then((skills) => (Array.isArray(skills) ? skills.length : 0))
+          .catch(() => 0);
+      }
+      return activeSkillCountPromise;
+    }
+
+    function stopPolling() {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      currentPollingId = null;
+    }
+
+    function startPolling(id) {
+      if (currentPollingId === id && pollTimer) return;
+      stopPolling();
+      currentPollingId = id;
+      pollTimer = window.setInterval(() => {
+        void refreshLive(id, { silent: true });
+      }, POLL_INTERVAL_MS);
+    }
 
     async function loadPhases(id) {
       phaseList.textContent = 'Cargando fases...';
@@ -84,10 +139,15 @@ import AppLayout from '../../layouts/AppLayout.astro';
         const response = await fetch(`${apiBase}/api/reviews/${id}/phases`);
         if (!response.ok) throw new Error('No se pudieron cargar fases');
         const phases = await response.json();
+        const expectedTotal = await getActiveSkillCount();
+        const finished = phases.filter((phase) => phase.status === 'done' || phase.status === 'failed').length;
+        runProgress.textContent = `Progreso: ${finished}/${Math.max(expectedTotal, phases.length)} fases`;
+
         if (!phases.length) {
           phaseList.textContent = 'Sin fases registradas todavía.';
           return;
         }
+
         phaseList.innerHTML = phases.map((phase) => `
           <div class="mb-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
             <div class="text-sm font-semibold text-slate-900">${phase.phase_key} · <span class="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-normal">${phase.status}</span> · score: ${phase.score ?? '-'}</div>
@@ -95,19 +155,22 @@ import AppLayout from '../../layouts/AppLayout.astro';
           </div>
         `).join('');
       } catch {
+        runProgress.textContent = 'Progreso: error cargando fases';
         phaseList.textContent = 'Error cargando fases.';
       }
     }
 
-    async function loadReview(id) {
-      editMsg.textContent = `Cargando revisión #${id}...`;
-      const response = await fetch(`${apiBase}/api/reviews/${id}`);
-      if (!response.ok) {
-        editMsg.textContent = `No se encontró la revisión #${id}.`;
-        return;
-      }
-      const detail = await response.json();
+    function applyReviewDetail(detail, mode = 'full') {
       editId.value = String(detail.id);
+      editStatus.value = detail.status;
+      editRecommendation.value = detail.recommendation;
+      editScores.value = detail.scores ? JSON.stringify(detail.scores) : '';
+      editReport.value = detail.final_report || '';
+      runStateBadge.className = statusBadgeClass(detail.status);
+      runStateBadge.textContent = `Estado: ${detail.status || '-'}`;
+
+      if (mode === 'runtime') return;
+
       editCandidateName.value = detail.candidate_name || '';
       editGithubUrl.value = detail.github_url || '';
       editDeployUrl.value = detail.candidate_deploy_url || '';
@@ -115,16 +178,64 @@ import AppLayout from '../../layouts/AppLayout.astro';
       editReviewerName.value = detail.reviewer_name || '';
       editReviewerEmail.value = detail.reviewer_email || '';
       editReviewedAt.value = detail.reviewed_at ? new Date(detail.reviewed_at).toISOString().slice(0, 16) : '';
-      editStatus.value = detail.status;
-      editRecommendation.value = detail.recommendation;
-      editScores.value = detail.scores ? JSON.stringify(detail.scores) : '';
       editIntakeConclusions.value = detail.intake_conclusions || '';
       editPredefinedQuestions.value = Array.isArray(detail.predefined_questions) ? detail.predefined_questions.join('\n') : '';
       editOtherQuestions.value = detail.intake_other_questions || '';
       editGoodPractices.value = detail.intake_good_practices || '';
       editDesignPatterns.value = detail.intake_design_patterns || '';
-      editReport.value = detail.final_report || '';
-      editMsg.textContent = `Revisión #${id} cargada.`;
+    }
+
+    async function refreshLive(id, options = { silent: false }) {
+      if (!options.silent) editMsg.textContent = `Cargando revisión #${id}...`;
+
+      const [reviewRes, phasesRes] = await Promise.all([
+        fetch(`${apiBase}/api/reviews/${id}`),
+        fetch(`${apiBase}/api/reviews/${id}/phases`)
+      ]);
+
+      if (!reviewRes.ok) throw new Error(`No se encontró la revisión #${id}.`);
+      if (!phasesRes.ok) throw new Error('No se pudieron cargar fases.');
+
+      const detail = await reviewRes.json();
+      const phases = await phasesRes.json();
+
+      applyReviewDetail(detail, options.silent ? 'runtime' : 'full');
+
+      const expectedTotal = await getActiveSkillCount();
+      const finished = phases.filter((phase) => phase.status === 'done' || phase.status === 'failed').length;
+      runProgress.textContent = `Progreso: ${finished}/${Math.max(expectedTotal, phases.length)} fases`;
+
+      if (!phases.length) {
+        phaseList.textContent = 'Sin fases registradas todavía.';
+      } else {
+        phaseList.innerHTML = phases.map((phase) => `
+          <div class="mb-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div class="text-sm font-semibold text-slate-900">${phase.phase_key} · <span class="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-normal">${phase.status}</span> · score: ${phase.score ?? '-'}</div>
+            <div class="mt-1 text-xs text-slate-600">${phase.summary || '-'}</div>
+          </div>
+        `).join('');
+      }
+
+      setUpdatedNow();
+      if (detail.status === 'running') startPolling(id);
+      else stopPolling();
+
+      return detail;
+    }
+
+    async function loadReview(id) {
+      try {
+        const detail = await refreshLive(id, { silent: false });
+        editMsg.textContent = detail.status === 'running'
+          ? `Revisión #${id} en ejecución. Actualización automática activa.`
+          : `Revisión #${id} cargada.`;
+      } catch (error) {
+        stopPolling();
+        const message = error instanceof Error ? error.message : `No se encontró la revisión #${id}.`;
+        editMsg.textContent = message;
+        return;
+      }
+
       await loadPhases(id);
       const url = new URL(window.location.href);
       url.searchParams.set('id', String(id));
@@ -205,11 +316,14 @@ import AppLayout from '../../layouts/AppLayout.astro';
         editMsg.textContent = `No se pudo lanzar la revisión #${id}.`;
         return;
       }
-      editMsg.textContent = `Revisión #${id} lanzada en background.`;
-      await loadPhases(id);
+
+      editMsg.textContent = `Revisión #${id} lanzada. Siguiendo progreso en tiempo real...`;
+      startPolling(id);
+      await refreshLive(id, { silent: true });
     });
 
     clearFormBtn.addEventListener('click', () => {
+      stopPolling();
       editId.value = '';
       editCandidateName.value = '';
       editGithubUrl.value = '';
@@ -228,10 +342,29 @@ import AppLayout from '../../layouts/AppLayout.astro';
       editDesignPatterns.value = '';
       editReport.value = '';
       editMsg.textContent = '';
+      runStateBadge.className = statusBadgeClass(null);
+      runStateBadge.textContent = 'Estado: -';
+      runProgress.textContent = 'Progreso: -';
+      runUpdatedAt.textContent = 'Última actualización: -';
       phaseList.textContent = 'Selecciona una revisión para ver fases.';
       const url = new URL(window.location.href);
       url.searchParams.delete('id');
       window.history.replaceState(null, '', url.toString());
+    });
+
+    refreshLiveBtn.addEventListener('click', async () => {
+      const id = Number(editId.value);
+      if (!id) {
+        editMsg.textContent = 'Indica un ID válido.';
+        return;
+      }
+
+      try {
+        await refreshLive(id, { silent: false });
+        editMsg.textContent = `Revisión #${id} actualizada manualmente.`;
+      } catch {
+        editMsg.textContent = `No se pudo actualizar la revisión #${id}.`;
+      }
     });
 
     const params = new URLSearchParams(window.location.search);
