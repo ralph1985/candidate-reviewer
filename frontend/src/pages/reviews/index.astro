@@ -115,6 +115,13 @@ import AppLayout from '../../layouts/AppLayout.astro';
                 type="button"
                 ${review.status === 'running' || hasRunning ? 'disabled' : ''}
               >${review.status === 'running' ? 'En progreso' : (hasRunning ? 'Bloqueado' : 'Run IA')}</button>
+              <button
+                class="ml-1 rounded px-2 py-1 text-xs text-white ${review.status === 'running' ? 'bg-rose-700' : 'cursor-not-allowed bg-slate-300'}"
+                data-stop="${review.id}"
+                data-status="${review.status}"
+                type="button"
+                ${review.status === 'running' ? '' : 'disabled'}
+              >Stop IA</button>
             </td>
           </tr>
         `).join('');
@@ -161,6 +168,34 @@ import AppLayout from '../../layouts/AppLayout.astro';
             currentIntervalMs = FAST_POLL_MS;
             renderAutoRefreshUi();
             restartPolling();
+            await loadReviews({ silent: true });
+          });
+        }
+
+        for (const btn of reviewsBody.querySelectorAll('button[data-stop]')) {
+          btn.addEventListener('click', async () => {
+            const id = Number(btn.getAttribute('data-stop'));
+            const status = btn.getAttribute('data-status');
+            if (status !== 'running') {
+              listMsg.textContent = `La revisión #${id} no está en ejecución.`;
+              return;
+            }
+            const confirmed = window.confirm(`¿Parar la revisión IA #${id}?`);
+            if (!confirmed) return;
+            btn.setAttribute('disabled', 'disabled');
+            listMsg.textContent = `Parando revisión #${id}...`;
+            const response = await fetch(`${apiBase}/api/reviews/${id}/stop`, { method: 'POST' });
+            if (!response.ok) {
+              let errorText = `No se pudo parar la revisión #${id}.`;
+              try {
+                const body = await response.json();
+                errorText = body?.error || errorText;
+              } catch {}
+              listMsg.textContent = errorText;
+              btn.removeAttribute('disabled');
+              return;
+            }
+            listMsg.textContent = `Revisión #${id} detenida.`;
             await loadReviews({ silent: true });
           });
         }

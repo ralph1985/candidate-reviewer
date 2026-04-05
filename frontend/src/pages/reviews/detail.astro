@@ -76,6 +76,7 @@ import AppLayout from '../../layouts/AppLayout.astro';
     <div class="mt-3 flex flex-wrap gap-2">
       <button class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white" id="save-review" type="button">Guardar cambios</button>
       <button class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-800" id="run-review" type="button">Run IA</button>
+      <button class="rounded-lg bg-rose-700 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60" id="stop-review" type="button" disabled>Stop IA</button>
       <button class="rounded-lg bg-rose-700 px-4 py-2 text-sm font-medium text-white" id="clear-form" type="button">Limpiar</button>
     </div>
     <p class="mt-2 text-xs text-slate-500" id="edit-msg"></p>
@@ -123,6 +124,7 @@ import AppLayout from '../../layouts/AppLayout.astro';
     const editReport = document.getElementById('edit-report');
     const saveReviewBtn = document.getElementById('save-review');
     const runReviewBtn = document.getElementById('run-review');
+    const stopReviewBtn = document.getElementById('stop-review');
     const clearFormBtn = document.getElementById('clear-form');
     const editMsg = document.getElementById('edit-msg');
     const phaseList = document.getElementById('phase-list');
@@ -366,6 +368,7 @@ import AppLayout from '../../layouts/AppLayout.astro';
       runStateBadge.className = statusBadgeClass(detail.status);
       runStateBadge.textContent = `Estado: ${detail.status || '-'}`;
       setRunButtonDisabled(detail.status === 'running', detail.status === 'running' ? 'En progreso' : 'Run IA');
+      stopReviewBtn.disabled = detail.status !== 'running';
 
       if (mode === 'runtime') return;
 
@@ -543,6 +546,35 @@ import AppLayout from '../../layouts/AppLayout.astro';
       await refreshLive(id, { silent: true });
     });
 
+    stopReviewBtn.addEventListener('click', async () => {
+      const id = Number(editId.value);
+      if (!id) {
+        editMsg.textContent = 'Indica un ID válido.';
+        return;
+      }
+      if (editStatus.value !== 'running') {
+        editMsg.textContent = `La revisión #${id} no está en ejecución.`;
+        return;
+      }
+      const confirmed = window.confirm(`¿Parar la revisión IA #${id}?`);
+      if (!confirmed) return;
+      stopReviewBtn.disabled = true;
+      editMsg.textContent = `Parando revisión #${id}...`;
+      const response = await fetch(`${apiBase}/api/reviews/${id}/stop`, { method: 'POST' });
+      if (!response.ok) {
+        let errorText = `No se pudo parar la revisión #${id}.`;
+        try {
+          const body = await response.json();
+          errorText = body?.error || errorText;
+        } catch {}
+        editMsg.textContent = errorText;
+        stopReviewBtn.disabled = false;
+        return;
+      }
+      editMsg.textContent = `Revisión #${id} detenida por usuario.`;
+      await refreshLive(id, { silent: true });
+    });
+
     clearFormBtn.addEventListener('click', () => {
       stopPolling();
       editId.value = '';
@@ -564,6 +596,7 @@ import AppLayout from '../../layouts/AppLayout.astro';
       editReport.value = '';
       editMsg.textContent = '';
       setRunButtonDisabled(false, 'Run IA');
+      stopReviewBtn.disabled = true;
       runStateBadge.className = statusBadgeClass(null);
       runStateBadge.textContent = 'Estado: -';
       runProgress.textContent = 'Progreso: -';

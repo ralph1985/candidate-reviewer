@@ -118,6 +118,16 @@ function codexCliTimeoutMs(): number {
   return raw;
 }
 
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { name?: string; code?: string; message?: string };
+  return (
+    candidate.name === 'AbortError' ||
+    candidate.code === 'ABORT_ERR' ||
+    (typeof candidate.message === 'string' && candidate.message.toLowerCase().includes('aborted'))
+  );
+}
+
 const REVIEW_SELECT_COLUMNS = `
   id,
   candidate_name,
@@ -201,6 +211,7 @@ async function loadActiveSkills(): Promise<ReviewSkillDefinition[]> {
 }
 
 async function executeReviewJob(id: number, githubUrl: string, exerciseName: string | null): Promise<void> {
+  const abortController = runningReviewControllers.get(id);
   try {
     const skills = await loadActiveSkills();
     const challenges = await loadActiveChallengeDefinitions();
@@ -213,6 +224,7 @@ async function executeReviewJob(id: number, githubUrl: string, exerciseName: str
       },
       {
         reviewId: id,
+        abortSignal: abortController?.signal,
         exerciseName: exerciseName || undefined,
         matchedChallenge: resolvedChallenge.matchedChallenge
           ? {
@@ -241,7 +253,11 @@ async function executeReviewJob(id: number, githubUrl: string, exerciseName: str
       [id, JSON.stringify(result.scores), result.finalReport, result.recommendation]
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Error inesperado ejecutando revisión automática';
+    const message = isAbortError(error)
+      ? 'Revisión cancelada por usuario.'
+      : error instanceof Error
+      ? error.message
+      : 'Error inesperado ejecutando revisión automática';
     await pool.query(
       `UPDATE reviews
        SET status = 'failed',
@@ -249,12 +265,15 @@ async function executeReviewJob(id: number, githubUrl: string, exerciseName: str
            recommendation = 'pendiente',
            finished_at = NOW()
        WHERE id = $1`,
-      [id, `Error en revisión automática: ${message}`]
+      [id, isAbortError(error) ? message : `Error en revisión automática: ${message}`]
     );
+  } finally {
+    runningReviewControllers.delete(id);
   }
 }
 
 const app = Fastify({ logger: true });
+const runningReviewControllers = new Map<number, AbortController>();
 const port = Number(process.env.PORT || 3000);
 const staticDir = process.env.STATIC_DIR || path.resolve(process.cwd(), 'frontend-dist');
 
@@ -779,6 +798,8 @@ app.post<{ Params: { id: string } }>('/api/reviews/:id/run', async (request, rep
     await client.query(`DELETE FROM review_phase_results WHERE review_id = $1`, [id]);
 
     await client.query('COMMIT');
+    const abortController = new AbortController();
+    runningReviewControllers.set(id, abortController);
     void executeReviewJob(id, review.github_url, review.exercise_name);
     return reply.code(202).send({ ok: true, id, status: 'running' });
   } catch (error) {
@@ -787,6 +808,40 @@ app.post<{ Params: { id: string } }>('/api/reviews/:id/run', async (request, rep
   } finally {
     client.release();
   }
+});
+
+app.post<{ Params: { id: string } }>('/api/reviews/:id/stop', async (request, reply) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return reply.code(400).send({ error: 'id inválido' });
+  }
+
+  const found = await pool.query(`SELECT id, status FROM reviews WHERE id = $1`, [id]);
+  if (found.rowCount === 0) {
+    return reply.code(404).send({ error: 'revisión no encontrada' });
+  }
+
+  const review = found.rows[0] as { id: number; status: ReviewStatus };
+  if (review.status !== 'running') {
+    return reply.code(409).send({ error: 'la revisión no está en ejecución' });
+  }
+
+  const controller = runningReviewControllers.get(id);
+  if (controller) {
+    controller.abort();
+  }
+
+  await pool.query(
+    `UPDATE reviews
+     SET status = 'failed',
+         recommendation = 'pendiente',
+         final_report = 'Revisión cancelada por usuario.',
+         finished_at = NOW()
+     WHERE id = $1`,
+    [id]
+  );
+
+  return reply.code(202).send({ ok: true, id, status: 'failed' });
 });
 
 async function recoverStaleRunningReviews(): Promise<void> {

@@ -38,6 +38,7 @@ type Scores = {
 export type RunnerContext = {
   reviewId?: number;
   exerciseName?: string;
+  abortSignal?: AbortSignal;
   matchedChallenge?: {
     key: string;
     name: string;
@@ -50,6 +51,16 @@ export type RunnerContext = {
     content: string;
   }>;
 };
+
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { name?: string; code?: string; message?: string };
+  return (
+    candidate.name === 'AbortError' ||
+    candidate.code === 'ABORT_ERR' ||
+    (typeof candidate.message === 'string' && candidate.message.toLowerCase().includes('aborted'))
+  );
+}
 
 export type PhasedReviewResult = {
   phases: Array<{
@@ -439,7 +450,8 @@ async function runCommandInRepo(
   repoPath: string,
   command: string,
   timeout: number,
-  extraEnv: Record<string, string>
+  extraEnv: Record<string, string>,
+  abortSignal?: AbortSignal
 ): Promise<{ ok: boolean; output: string; errorMessage: string | null }> {
   let stdout = '';
   let stderr = '';
@@ -450,11 +462,13 @@ async function runCommandInRepo(
       cwd: repoPath,
       timeout,
       maxBuffer: 6 * 1024 * 1024,
+      signal: abortSignal,
       env: { ...process.env, CI: '1', ...extraEnv }
     });
     stdout = result.stdout || '';
     stderr = result.stderr || '';
   } catch (error) {
+    if (isAbortError(error)) throw error;
     const typed = error as { stdout?: string; stderr?: string; message?: string };
     stdout = typed.stdout || '';
     stderr = typed.stderr || '';
@@ -468,7 +482,11 @@ async function runCommandInRepo(
   };
 }
 
-async function runTestsIfAvailable(repoPath: string, security: SecurityPreflightResult): Promise<TestExecutionResult> {
+async function runTestsIfAvailable(
+  repoPath: string,
+  security: SecurityPreflightResult,
+  abortSignal?: AbortSignal
+): Promise<TestExecutionResult> {
   const node = await detectNodeProject(repoPath);
   if (!node.exists || !node.packageJson) {
     return {
@@ -531,7 +549,7 @@ async function runTestsIfAvailable(repoPath: string, security: SecurityPreflight
     PNPM_IGNORE_SCRIPTS: 'true'
   };
 
-  const installResult = await runCommandInRepo(repoPath, installCommand, testsTimeoutMs(), secureInstallEnv);
+  const installResult = await runCommandInRepo(repoPath, installCommand, testsTimeoutMs(), secureInstallEnv, abortSignal);
   if (!installResult.ok) {
     return {
       detected: true,
@@ -544,7 +562,7 @@ async function runTestsIfAvailable(repoPath: string, security: SecurityPreflight
     };
   }
 
-  const testResult = await runCommandInRepo(repoPath, testCommand, testsTimeoutMs(), {});
+  const testResult = await runCommandInRepo(repoPath, testCommand, testsTimeoutMs(), {}, abortSignal);
   return {
     detected: true,
     ran: true,
@@ -562,7 +580,7 @@ type CodexExecResult = {
   errorMessage: string | null;
 };
 
-async function runCodexExecWithSchema(repoPath: string, prompt: string): Promise<CodexExecResult> {
+async function runCodexExecWithSchema(repoPath: string, prompt: string, abortSignal?: AbortSignal): Promise<CodexExecResult> {
   const schemaPath = path.join(repoPath, '.candidate-review-schema.json');
   const outputPath = path.join(repoPath, '.candidate-review-output.json');
 
@@ -601,11 +619,13 @@ async function runCodexExecWithSchema(repoPath: string, prompt: string): Promise
       cwd: repoPath,
       timeout: codexCliTimeoutMs(),
       maxBuffer: 4 * 1024 * 1024,
+      signal: abortSignal,
       env: { ...process.env, CI: '1' }
     });
     stdout = execResult.stdout || '';
     stderr = execResult.stderr || '';
   } catch (error) {
+    if (isAbortError(error)) throw error;
     const typed = error as { stdout?: string; stderr?: string; message?: string };
     stdout = typed.stdout || '';
     stderr = typed.stderr || '';
@@ -628,9 +648,10 @@ async function runCodexPhase(
   challengeContext: {
     matchedChallenge?: { key: string; name: string; content: string } | null;
     globalRequirements?: Array<{ key: string; name: string; content: string }>;
-  }
+  },
+  abortSignal?: AbortSignal
 ): Promise<{ score: number; summary: string; details: Record<string, unknown>; rawOutput: string }> {
-  const execResult = await runCodexExecWithSchema(repoPath, codexPrompt(skill, metrics, challengeContext));
+  const execResult = await runCodexExecWithSchema(repoPath, codexPrompt(skill, metrics, challengeContext), abortSignal);
   const raw = execResult.schemaOutput?.trim() || execResult.mergedOutput;
   if (!raw) {
     throw new Error(`Codex CLI fallo antes de JSON valido: ${execResult.errorMessage || 'sin salida util'}`);
@@ -662,7 +683,8 @@ async function prepareRepository(
 
   await execFileAsync('git', ['clone', '--depth', '1', githubUrl, workspacePath], {
     timeout: 180000,
-    maxBuffer: 2 * 1024 * 1024
+    maxBuffer: 2 * 1024 * 1024,
+    signal: context?.abortSignal
   });
 
   const repoStat = await stat(workspacePath);
@@ -742,6 +764,11 @@ export async function runPhasedReview(
 
   try {
     for (const skill of skills) {
+      if (context?.abortSignal?.aborted) {
+        const abortError = new Error('Review execution aborted');
+        (abortError as Error & { name: string }).name = 'AbortError';
+        throw abortError;
+      }
       const startedAt = new Date();
 
       let status: 'done' | 'failed' = 'done';
@@ -781,7 +808,7 @@ export async function runPhasedReview(
           securityPreflight = await runSecurityPreflight(workspacePath);
         }
 
-        const execution = await runTestsIfAvailable(workspacePath, securityPreflight);
+        const execution = await runTestsIfAvailable(workspacePath, securityPreflight, context?.abortSignal);
         const heuristic = heuristicScoreByPhase(skill.key, metrics);
         score = mergeTestScore(heuristic, execution);
 
@@ -810,12 +837,13 @@ export async function runPhasedReview(
         rawOutput = execution.output || null;
       } else if (codexCliEnabled()) {
         try {
-          const codexResult = await runCodexPhase(skill, workspacePath, metrics, challengeContext);
+          const codexResult = await runCodexPhase(skill, workspacePath, metrics, challengeContext, context?.abortSignal);
           score = codexResult.score;
           summary = codexResult.summary;
           details = { ...details, ...codexResult.details, engine: 'codex-cli' };
           rawOutput = codexResult.rawOutput;
         } catch (error) {
+          if (isAbortError(error)) throw error;
           const reason = error instanceof Error ? error.message : 'Codex CLI fallo';
           const fallbackScore = heuristicScoreByPhase(skill.key, metrics);
           score = fallbackScore;
