@@ -71,6 +71,46 @@ function challengesPagesDir(): string {
   return path.resolve(process.cwd(), 'challenges/pages');
 }
 
+function challengesIncludesDir(): string {
+  return path.resolve(process.cwd(), 'challenges/_includes');
+}
+
+const INCLUDE_REGEX = /\{%\s*include\s+([^%\s]+)\s*%\}/g;
+const MAX_INCLUDE_DEPTH = 8;
+
+async function resolveIncludeDirectives(content: string, depth = 0): Promise<string> {
+  if (depth >= MAX_INCLUDE_DEPTH) return content;
+
+  const matches = [...content.matchAll(INCLUDE_REGEX)];
+  if (matches.length === 0) return content;
+
+  let output = content;
+  const includesDir = challengesIncludesDir();
+
+  for (const match of matches) {
+    const raw = match[0];
+    const includeName = (match[1] || '').trim();
+    if (!includeName) continue;
+
+    // Prevent path traversal and keep includes contained in challenges/_includes.
+    const includePath = path.resolve(includesDir, includeName);
+    if (!includePath.startsWith(includesDir + path.sep)) {
+      output = output.replace(raw, `\n<!-- include bloqueado: ${includeName} -->\n`);
+      continue;
+    }
+
+    try {
+      const includeContent = await readFile(includePath, 'utf8');
+      const resolvedInclude = await resolveIncludeDirectives(includeContent, depth + 1);
+      output = output.replace(raw, `\n${resolvedInclude.trim()}\n`);
+    } catch {
+      output = output.replace(raw, `\n<!-- include no encontrado: ${includeName} -->\n`);
+    }
+  }
+
+  return output;
+}
+
 function normalize(text: string): string {
   return text
     .normalize('NFD')
@@ -107,13 +147,14 @@ export async function syncChallengeDefinitionsFromFiles(): Promise<{ upserted: n
 
   for (const seed of CHALLENGE_SEEDS) {
     const sourcePath = path.join(baseDir, seed.sourcePath);
-    let content: string;
+    let rawContent: string;
     try {
-      content = await readFile(sourcePath, 'utf8');
+      rawContent = await readFile(sourcePath, 'utf8');
     } catch {
       skipped.push(seed.sourcePath);
       continue;
     }
+    const content = await resolveIncludeDirectives(rawContent);
 
     await pool.query(
       `INSERT INTO challenge_definitions
