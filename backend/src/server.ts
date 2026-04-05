@@ -285,7 +285,7 @@ app.get('/api/skills', async (_, reply) => {
 
 app.get('/api/challenges', async (_, reply) => {
   const result = await pool.query(
-    `SELECT id, key, name, kind, aliases, content_format, source_path, active, created_at, updated_at
+    `SELECT id, key, name, kind, aliases, content_format, content, source_path, active, created_at, updated_at
      FROM challenge_definitions
      ORDER BY kind ASC, key ASC`
   );
