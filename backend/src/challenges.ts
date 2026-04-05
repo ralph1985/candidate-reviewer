@@ -10,6 +10,7 @@ export type ChallengeDefinition = {
   name: string;
   kind: ChallengeKind;
   aliases: string[];
+  publicUrl: string | null;
   contentFormat: 'markdown' | 'html';
   content: string;
   sourcePath: string | null;
@@ -20,6 +21,7 @@ type ChallengeSeed = {
   name: string;
   kind: ChallengeKind;
   aliases: string[];
+  publicUrl: string;
   contentFormat: 'markdown' | 'html';
   sourcePath: string;
 };
@@ -30,6 +32,7 @@ const CHALLENGE_SEEDS: ChallengeSeed[] = [
     name: 'Autoclicker',
     kind: 'challenge',
     aliases: ['auto clicker', 'cookie clicker'],
+    publicUrl: 'https://bbvaengineering.github.io/challenges/autoclicker/',
     contentFormat: 'markdown',
     sourcePath: 'autoclicker.md'
   },
@@ -38,6 +41,7 @@ const CHALLENGE_SEEDS: ChallengeSeed[] = [
     name: 'Kill the Mole',
     kind: 'challenge',
     aliases: ['toca al topo', 'whack a mole', 'topo'],
+    publicUrl: 'https://bbvaengineering.github.io/challenges/kill/',
     contentFormat: 'markdown',
     sourcePath: 'kill.md'
   },
@@ -46,6 +50,7 @@ const CHALLENGE_SEEDS: ChallengeSeed[] = [
     name: 'Memory Cards',
     kind: 'challenge',
     aliases: ['memoria', 'memory cards'],
+    publicUrl: 'https://bbvaengineering.github.io/challenges/memory/',
     contentFormat: 'markdown',
     sourcePath: 'memory.md'
   },
@@ -54,6 +59,7 @@ const CHALLENGE_SEEDS: ChallengeSeed[] = [
     name: 'Rock Paper Scissors',
     kind: 'challenge',
     aliases: ['piedra papel o tijera', 'rock-paper-scissors', 'rps'],
+    publicUrl: 'https://bbvaengineering.github.io/challenges/rock-paper-scissors/',
     contentFormat: 'markdown',
     sourcePath: 'rock-paper-scissors.md'
   },
@@ -62,6 +68,7 @@ const CHALLENGE_SEEDS: ChallengeSeed[] = [
     name: 'Statues (Red Light, Green Light)',
     kind: 'challenge',
     aliases: ['red light green light', 'semaforo', 'statues'],
+    publicUrl: 'https://bbvaengineering.github.io/challenges/statues/',
     contentFormat: 'markdown',
     sourcePath: 'statues.md'
   },
@@ -158,19 +165,29 @@ export async function syncChallengeDefinitionsFromFiles(): Promise<{ upserted: n
 
     await pool.query(
       `INSERT INTO challenge_definitions
-        (key, name, kind, aliases, content_format, content, source_path, active)
+        (key, name, kind, aliases, public_url, content_format, content, source_path, active)
        VALUES
-        ($1, $2, $3, $4::text[], $5, $6, $7, true)
+        ($1, $2, $3, $4::text[], $5, $6, $7, $8, true)
        ON CONFLICT (key)
        DO UPDATE SET
         name = EXCLUDED.name,
         kind = EXCLUDED.kind,
         aliases = EXCLUDED.aliases,
+        public_url = EXCLUDED.public_url,
         content_format = EXCLUDED.content_format,
         content = EXCLUDED.content,
         source_path = EXCLUDED.source_path,
         active = true`,
-      [seed.key, seed.name, seed.kind, seed.aliases, seed.contentFormat, content, `challenges/pages/${seed.sourcePath}`]
+      [
+        seed.key,
+        seed.name,
+        seed.kind,
+        seed.aliases,
+        seed.publicUrl,
+        seed.contentFormat,
+        content,
+        `challenges/pages/${seed.sourcePath}`
+      ]
     );
     upserted += 1;
   }
@@ -180,7 +197,7 @@ export async function syncChallengeDefinitionsFromFiles(): Promise<{ upserted: n
 
 export async function loadActiveChallengeDefinitions(): Promise<ChallengeDefinition[]> {
   const result = await pool.query(
-    `SELECT id, key, name, kind, aliases, content_format, content, source_path
+    `SELECT id, key, name, kind, aliases, public_url, content_format, content, source_path
      FROM challenge_definitions
      WHERE active = true
      ORDER BY kind ASC, key ASC`
@@ -192,6 +209,7 @@ export async function loadActiveChallengeDefinitions(): Promise<ChallengeDefinit
     name: String(row.name),
     kind: String(row.kind) as ChallengeKind,
     aliases: Array.isArray(row.aliases) ? row.aliases.map((item: unknown) => String(item)) : [],
+    publicUrl: row.public_url ? String(row.public_url) : null,
     contentFormat: String(row.content_format) === 'html' ? 'html' : 'markdown',
     content: String(row.content),
     sourcePath: row.source_path ? String(row.source_path) : null

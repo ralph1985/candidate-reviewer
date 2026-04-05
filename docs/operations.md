@@ -101,6 +101,12 @@ Tabla de enunciados oficiales:
 docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_challenge_definitions.sql
 ```
 
+URL pública de cada challenge (enlace para revisar exactamente la prueba enviada al candidato):
+
+```bash
+docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_challenge_public_url.sql
+```
+
 Eliminar legado de enunciado 404 (si existía de una versión anterior):
 
 ```bash

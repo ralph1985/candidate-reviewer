@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS challenge_definitions (
   name TEXT NOT NULL,
   kind TEXT NOT NULL DEFAULT 'challenge' CHECK (kind IN ('challenge')),
   aliases TEXT[] NOT NULL DEFAULT '{}',
+  public_url TEXT,
   content_format TEXT NOT NULL DEFAULT 'markdown' CHECK (content_format IN ('markdown', 'html')),
   content TEXT NOT NULL,
   source_path TEXT,
