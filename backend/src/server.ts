@@ -10,7 +10,7 @@ import {
   syncChallengeDefinitionsFromFiles
 } from './challenges';
 
-type ReviewStatus = 'pending' | 'running' | 'done' | 'failed';
+type ReviewStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
 type Recommendation = 'apto' | 'no_apto' | 'pendiente';
 type ReviewIntakeBody = {
   candidateName?: string;
@@ -260,12 +260,16 @@ async function executeReviewJob(id: number, githubUrl: string, exerciseName: str
       : 'Error inesperado ejecutando revisión automática';
     await pool.query(
       `UPDATE reviews
-       SET status = 'failed',
+       SET status = $3,
            final_report = $2,
            recommendation = 'pendiente',
            finished_at = NOW()
        WHERE id = $1`,
-      [id, isAbortError(error) ? message : `Error en revisión automática: ${message}`]
+      [
+        id,
+        isAbortError(error) ? message : `Error en revisión automática: ${message}`,
+        isAbortError(error) ? 'cancelled' : 'failed'
+      ]
     );
   } finally {
     runningReviewControllers.delete(id);
@@ -535,7 +539,7 @@ app.patch<{
   const hasPredefinedQuestions = Array.isArray(request.body?.predefinedQuestions);
   const predefinedQuestions = hasPredefinedQuestions ? normalizeStringArray(request.body?.predefinedQuestions) : null;
 
-  if (status && !['pending', 'running', 'done', 'failed'].includes(status)) {
+  if (status && !['pending', 'running', 'done', 'failed', 'cancelled'].includes(status)) {
     return reply.code(400).send({ error: 'status inválido' });
   }
 
@@ -570,7 +574,7 @@ app.patch<{
          ELSE started_at
        END,
        finished_at = CASE
-         WHEN COALESCE($17, status) IN ('done', 'failed') THEN NOW()
+         WHEN COALESCE($17, status) IN ('done', 'failed', 'cancelled') THEN NOW()
          ELSE finished_at
        END
      WHERE id = $1
@@ -833,7 +837,7 @@ app.post<{ Params: { id: string } }>('/api/reviews/:id/stop', async (request, re
 
   await pool.query(
     `UPDATE reviews
-     SET status = 'failed',
+     SET status = 'cancelled',
          recommendation = 'pendiente',
          final_report = 'Revisión cancelada por usuario.',
          finished_at = NOW()
@@ -841,7 +845,7 @@ app.post<{ Params: { id: string } }>('/api/reviews/:id/stop', async (request, re
     [id]
   );
 
-  return reply.code(202).send({ ok: true, id, status: 'failed' });
+  return reply.code(202).send({ ok: true, id, status: 'cancelled' });
 });
 
 async function recoverStaleRunningReviews(): Promise<void> {

@@ -89,6 +89,12 @@ Campos de intake en flujo UI (conclusiones, otras preguntas, buenas prácticas, 
 docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_review_intake_fields.sql
 ```
 
+Estado `cancelled` para revisiones detenidas por usuario:
+
+```bash
+docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_cancelled_review_status.sql
+```
+
 Tabla de enunciados oficiales:
 
 ```bash

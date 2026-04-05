@@ -41,6 +41,7 @@ import AppLayout from '../../layouts/AppLayout.astro';
           <option value="running">running</option>
           <option value="done">done</option>
           <option value="failed">failed</option>
+          <option value="cancelled">cancelled</option>
         </select>
       </label>
       <label class="block text-xs font-medium text-slate-700" for="edit-recommendation">Recomendación
@@ -150,6 +151,7 @@ import AppLayout from '../../layouts/AppLayout.astro';
       if (status === 'running') return 'rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800';
       if (status === 'done') return 'rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800';
       if (status === 'failed') return 'rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-800';
+      if (status === 'cancelled') return 'rounded-full bg-indigo-100 px-2 py-0.5 font-semibold text-indigo-800';
       return 'rounded-full bg-slate-200 px-2 py-0.5 font-semibold text-slate-700';
     }
 

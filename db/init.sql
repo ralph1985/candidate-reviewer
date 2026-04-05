@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS reviews (
   intake_other_questions TEXT,
   intake_good_practices TEXT,
   intake_design_patterns TEXT,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'done', 'failed')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'done', 'failed', 'cancelled')),
   scores JSONB,
   final_report TEXT,
   interview_recommended BOOLEAN,
