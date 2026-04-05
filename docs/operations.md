@@ -117,6 +117,12 @@ URL pública de cada challenge (enlace para revisar exactamente la prueba enviad
 docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_challenge_public_url.sql
 ```
 
+Skills base adicionales (fases de revisión completas usadas en evaluaciones reales, incluyendo bloques como `readme`, `funcionamiento`, `codigo`, `modelado_datos`, `testing`, `css`, `accesibilidad`, `ci_cd`, `pwa`, `analisis_estatico`, `git`):
+
+```bash
+docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/add_base_phase_skills_from_abel.sql
+```
+
 Eliminar legado de enunciado 404 (si existía de una versión anterior):
 
 ```bash

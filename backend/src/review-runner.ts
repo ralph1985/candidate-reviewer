@@ -386,7 +386,7 @@ function codexPrompt(
   }
 
   return [
-    'Eres un revisor tecnico de pruebas de candidatos.',
+    'Eres un desarrollador senior experto en JavaScript y en revisión técnica de pruebas de candidatos.',
     `Fase: "${skill.key}" (${skill.name}).`,
     ...challengeBlock,
     custom,
