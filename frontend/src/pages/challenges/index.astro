@@ -1,0 +1,76 @@
+---
+import AppLayout from '../../layouts/AppLayout.astro';
+---
+
+<AppLayout activeNav="challenges" title="Enunciados de ejercicios" description="Listado de pruebas técnicas cargadas para validar cobertura de requisitos">
+  <section class="rounded-xl border border-slate-200 bg-white p-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h3 class="text-base font-semibold text-slate-900">Ejercicios disponibles</h3>
+      <button class="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-800" id="refresh-challenges" type="button">Refrescar</button>
+    </div>
+    <p class="mt-2 text-xs text-slate-500">Estos enunciados se usan para detectar la prueba del candidato y evaluar si cubre los requisitos.</p>
+    <div class="mt-4 space-y-3" id="challenges-list">
+      <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">Cargando enunciados...</div>
+    </div>
+  </section>
+
+  <script type="module">
+    const appBase = window.location.pathname.startsWith('/cr/') ? '/cr' : '';
+    const apiBase = appBase;
+    const refreshBtn = document.getElementById('refresh-challenges');
+    const challengesList = document.getElementById('challenges-list');
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    async function loadChallenges() {
+      challengesList.innerHTML = '<div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">Cargando enunciados...</div>';
+      try {
+        const response = await fetch(`${apiBase}/api/challenges`);
+        if (!response.ok) throw new Error('No se pudieron cargar enunciados');
+        const data = await response.json();
+
+        if (!Array.isArray(data) || data.length === 0) {
+          challengesList.innerHTML = '<div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">No hay enunciados cargados.</div>';
+          return;
+        }
+
+        challengesList.innerHTML = data.map((challenge) => {
+          const content = escapeHtml(challenge.content || '').replaceAll('\n', '<br>');
+          return `
+            <details class="group rounded-xl border border-slate-200 bg-white p-0" open>
+              <summary class="cursor-pointer list-none px-4 py-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div class="text-sm font-semibold text-slate-900">${escapeHtml(challenge.name || challenge.key || 'Ejercicio')}</div>
+                    <div class="text-xs text-slate-500">key: ${escapeHtml(challenge.key || '-')}</div>
+                  </div>
+                  <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">ver enunciado</span>
+                </div>
+              </summary>
+              <div class="border-t border-slate-200 px-4 py-3">
+                <article class="prose prose-sm max-w-none text-slate-700">
+                  <p class="whitespace-pre-wrap break-words">${content || '-'}</p>
+                </article>
+              </div>
+            </details>
+          `;
+        }).join('');
+      } catch {
+        challengesList.innerHTML = '<div class="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">Error cargando enunciados.</div>';
+      }
+    }
+
+    refreshBtn.addEventListener('click', () => {
+      void loadChallenges();
+    });
+
+    void loadChallenges();
+  </script>
+</AppLayout>

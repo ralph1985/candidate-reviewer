@@ -4,7 +4,7 @@ import '../styles/global.css';
 interface Props {
   title: string;
   description?: string;
-  activeNav?: 'home' | 'new' | 'reviews' | 'detail' | 'skills';
+  activeNav?: 'home' | 'new' | 'reviews' | 'detail' | 'skills' | 'challenges';
 }
 
 const { title, description = 'Gestión de revisiones técnicas por fases', activeNav = 'home' } = Astro.props;
@@ -59,6 +59,10 @@ const { title, description = 'Gestión de revisiones técnicas por fases', activ
           <a class="menu-link rounded-xl border px-4 py-3 text-left transition-colors" data-active={activeNav === 'skills'} data-app-route="/skills" href="/skills">
             <span class="block text-sm font-semibold">Skills</span>
             <span class="block text-xs text-inherit/70">Prompts y orden</span>
+          </a>
+          <a class="menu-link rounded-xl border px-4 py-3 text-left transition-colors" data-active={activeNav === 'challenges'} data-app-route="/challenges/" href="/challenges/">
+            <span class="block text-sm font-semibold">Enunciados</span>
+            <span class="block text-xs text-inherit/70">Ejercicios cargados</span>
           </a>
         </nav>
       </aside>
@@ -131,4 +135,3 @@ const { title, description = 'Gestión de revisiones técnicas por fases', activ
     </script>
   </body>
 </html>
-
