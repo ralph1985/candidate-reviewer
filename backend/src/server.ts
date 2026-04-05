@@ -111,6 +111,13 @@ function normalizeText(value: unknown): string | null {
   return text.length > 0 ? text : null;
 }
 
+function codexCliTimeoutMs(): number {
+  const fallback = 420000;
+  const raw = Number(process.env.CODEX_CLI_TIMEOUT_MS || fallback);
+  if (!Number.isFinite(raw) || raw <= 0) return fallback;
+  return raw;
+}
+
 const REVIEW_SELECT_COLUMNS = `
   id,
   candidate_name,
@@ -263,6 +270,12 @@ app.register(fastifyStatic, {
 });
 
 app.get('/health', async () => ({ ok: true }));
+
+app.get('/api/runtime-config', async (_, reply) => {
+  return reply.send({
+    codexCliTimeoutMs: codexCliTimeoutMs()
+  });
+});
 
 app.get('/api/reviews', async (_, reply) => {
   const result = await pool.query(
@@ -714,32 +727,66 @@ app.post<{ Params: { id: string } }>('/api/reviews/:id/run', async (request, rep
     return reply.code(400).send({ error: 'id inválido' });
   }
 
-  const found = await pool.query(`SELECT id, github_url, exercise_name, status FROM reviews WHERE id = $1`, [id]);
-  if (found.rowCount === 0) {
-    return reply.code(404).send({ error: 'revisión no encontrada' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const launchLock = await client.query<{ locked: boolean }>(
+      `SELECT pg_try_advisory_xact_lock(50214021) AS locked`
+    );
+    if (!launchLock.rows[0]?.locked) {
+      await client.query('ROLLBACK');
+      return reply.code(409).send({ error: 'ya hay una solicitud de lanzamiento en curso' });
+    }
+
+    const found = await client.query(`SELECT id, github_url, exercise_name, status FROM reviews WHERE id = $1`, [id]);
+    if (found.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return reply.code(404).send({ error: 'revisión no encontrada' });
+    }
+
+    const review = found.rows[0] as { id: number; github_url: string; exercise_name: string | null; status: ReviewStatus };
+    if (review.status === 'running') {
+      await client.query('ROLLBACK');
+      return reply.code(409).send({ error: 'la revisión ya está en ejecución' });
+    }
+
+    const running = await client.query<{ id: number; candidate_name: string }>(
+      `SELECT id, candidate_name
+       FROM reviews
+       WHERE status = 'running'
+       LIMIT 1`
+    );
+    if ((running.rowCount ?? 0) > 0) {
+      const busy = running.rows[0];
+      await client.query('ROLLBACK');
+      return reply
+        .code(409)
+        .send({ error: `ya hay una revisión en ejecución (#${busy.id}: ${busy.candidate_name})` });
+    }
+
+    await client.query(
+      `UPDATE reviews
+       SET status = 'running',
+           recommendation = 'pendiente',
+           scores = NULL,
+           final_report = 'Revisión en progreso...',
+           started_at = NOW(),
+           finished_at = NULL
+       WHERE id = $1`,
+      [id]
+    );
+    await client.query(`DELETE FROM review_phase_results WHERE review_id = $1`, [id]);
+
+    await client.query('COMMIT');
+    void executeReviewJob(id, review.github_url, review.exercise_name);
+    return reply.code(202).send({ ok: true, id, status: 'running' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
-
-  const review = found.rows[0] as { id: number; github_url: string; exercise_name: string | null; status: ReviewStatus };
-  if (review.status === 'running') {
-    return reply.code(409).send({ error: 'la revisión ya está en ejecución' });
-  }
-
-  await pool.query(
-    `UPDATE reviews
-     SET status = 'running',
-         recommendation = 'pendiente',
-         scores = NULL,
-         final_report = 'Revisión en progreso...',
-         started_at = NOW(),
-         finished_at = NULL
-     WHERE id = $1`,
-    [id]
-  );
-  await pool.query(`DELETE FROM review_phase_results WHERE review_id = $1`, [id]);
-
-  void executeReviewJob(id, review.github_url, review.exercise_name);
-
-  return reply.code(202).send({ ok: true, id, status: 'running' });
 });
 
 async function recoverStaleRunningReviews(): Promise<void> {

@@ -89,7 +89,12 @@ import AppLayout from '../../layouts/AppLayout.astro';
     <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
       <span class="rounded-full bg-slate-200 px-2 py-0.5 font-semibold text-slate-700" id="run-state-badge">Estado: -</span>
       <span class="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600" id="run-progress">Progreso: -</span>
+      <span class="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600" id="run-elapsed">Tiempo ejecución: -</span>
+      <span class="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600" id="run-timeout-signal">Timeout fase: -</span>
       <span class="text-slate-500" id="run-updated-at">Última actualización: -</span>
+    </div>
+    <div class="mt-2 text-xs">
+      <span class="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600" id="run-optimization-hint">Optimización: -</span>
     </div>
     <div class="mt-2 text-xs text-slate-500" id="phase-list">Selecciona una revisión para ver fases.</div>
   </section>
@@ -124,12 +129,20 @@ import AppLayout from '../../layouts/AppLayout.astro';
     const refreshLiveBtn = document.getElementById('refresh-live');
     const runStateBadge = document.getElementById('run-state-badge');
     const runProgress = document.getElementById('run-progress');
+    const runElapsed = document.getElementById('run-elapsed');
+    const runTimeoutSignal = document.getElementById('run-timeout-signal');
+    const runOptimizationHint = document.getElementById('run-optimization-hint');
     const runUpdatedAt = document.getElementById('run-updated-at');
 
     const POLL_INTERVAL_MS = 3000;
+    const LIVE_TIMER_INTERVAL_MS = 1000;
+    const PHASE_TIMEOUT_MS_FALLBACK = 420000;
     let pollTimer = null;
+    let liveTimer = null;
     let currentPollingId = null;
     let activeSkillCountPromise = null;
+    let latestRunSnapshot = null;
+    let runtimePhaseTimeoutMs = PHASE_TIMEOUT_MS_FALLBACK;
 
     function statusBadgeClass(status) {
       if (status === 'running') return 'rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800';
@@ -160,12 +173,31 @@ import AppLayout from '../../layouts/AppLayout.astro';
       return activeSkillCountPromise;
     }
 
+    async function loadRuntimeConfig() {
+      try {
+        const response = await fetch(`${apiBase}/api/runtime-config`);
+        if (!response.ok) return;
+        const config = await response.json();
+        const timeout = Number(config?.codexCliTimeoutMs);
+        if (Number.isFinite(timeout) && timeout > 0) {
+          runtimePhaseTimeoutMs = timeout;
+        }
+      } catch {
+        runtimePhaseTimeoutMs = PHASE_TIMEOUT_MS_FALLBACK;
+      }
+    }
+
     function stopPolling() {
       if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = null;
       }
+      if (liveTimer) {
+        clearInterval(liveTimer);
+        liveTimer = null;
+      }
       currentPollingId = null;
+      latestRunSnapshot = null;
     }
 
     function startPolling(id) {
@@ -175,6 +207,121 @@ import AppLayout from '../../layouts/AppLayout.astro';
       pollTimer = window.setInterval(() => {
         void refreshLive(id, { silent: true });
       }, POLL_INTERVAL_MS);
+      if (!liveTimer) {
+        liveTimer = window.setInterval(() => {
+          updateLiveRuntimeIndicators();
+        }, LIVE_TIMER_INTERVAL_MS);
+      }
+    }
+
+    function formatDuration(ms) {
+      if (!Number.isFinite(ms) || ms < 0) return '0s';
+      const totalSeconds = Math.floor(ms / 1000);
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      if (minutes === 0) return `${seconds}s`;
+      return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+    }
+
+    function getPhaseTimeoutStatus(remainingMs) {
+      if (remainingMs <= 0) {
+        return {
+          className: 'rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-800',
+          label: `Timeout fase: superado hace ${formatDuration(Math.abs(remainingMs))}`
+        };
+      }
+      if (remainingMs <= 30000) {
+        return {
+          className: 'rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-800',
+          label: `Timeout fase: crítico (${formatDuration(remainingMs)} restante)`
+        };
+      }
+      if (remainingMs <= 120000) {
+        return {
+          className: 'rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800',
+          label: `Timeout fase: aviso (${formatDuration(remainingMs)} restante)`
+        };
+      }
+      return {
+        className: 'rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800',
+        label: `Timeout fase: OK (${formatDuration(remainingMs)} restante)`
+      };
+    }
+
+    function updateLiveRuntimeIndicators() {
+      if (!latestRunSnapshot || latestRunSnapshot.status !== 'running') return;
+      const now = Date.now();
+      const reviewElapsedMs = now - latestRunSnapshot.reviewStartedAtMs;
+      runElapsed.textContent = `Tiempo ejecución: ${formatDuration(reviewElapsedMs)}`;
+
+      const currentPhaseStartMs = latestRunSnapshot.currentPhaseStartedAtMs || latestRunSnapshot.reviewStartedAtMs;
+      const phaseElapsedMs = now - currentPhaseStartMs;
+      const remainingMs = runtimePhaseTimeoutMs - phaseElapsedMs;
+      const timeoutStatus = getPhaseTimeoutStatus(remainingMs);
+      runTimeoutSignal.className = timeoutStatus.className;
+      runTimeoutSignal.textContent = timeoutStatus.label;
+    }
+
+    function updateOptimizationHint(phases) {
+      if (!Array.isArray(phases) || phases.length === 0) {
+        runOptimizationHint.className = 'rounded-full bg-slate-100 px-2 py-0.5 text-slate-600';
+        runOptimizationHint.textContent = 'Optimización: sin datos de fases todavía.';
+        return;
+      }
+
+      const now = Date.now();
+      let slowestPhase = null;
+      let slowestRatio = 0;
+
+      for (const phase of phases) {
+        const startedAt = phase.started_at ? new Date(phase.started_at).getTime() : null;
+        if (!startedAt || Number.isNaN(startedAt)) continue;
+        const finishedAt = phase.finished_at ? new Date(phase.finished_at).getTime() : now;
+        const durationMs = Math.max(0, finishedAt - startedAt);
+        const ratio = durationMs / runtimePhaseTimeoutMs;
+        if (ratio > slowestRatio) {
+          slowestRatio = ratio;
+          slowestPhase = phase.phase_key;
+        }
+      }
+
+      if (!slowestPhase) {
+        runOptimizationHint.className = 'rounded-full bg-slate-100 px-2 py-0.5 text-slate-600';
+        runOptimizationHint.textContent = 'Optimización: sin tiempos válidos de fase.';
+        return;
+      }
+
+      if (slowestRatio >= 0.9) {
+        runOptimizationHint.className = 'rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-800';
+        runOptimizationHint.textContent = `Optimización: urgente dividir "${slowestPhase}" (usa ${(slowestRatio * 100).toFixed(0)}% del timeout).`;
+        return;
+      }
+
+      if (slowestRatio >= 0.7) {
+        runOptimizationHint.className = 'rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800';
+        runOptimizationHint.textContent = `Optimización: conviene dividir "${slowestPhase}" (usa ${(slowestRatio * 100).toFixed(0)}% del timeout).`;
+        return;
+      }
+
+      runOptimizationHint.className = 'rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800';
+      runOptimizationHint.textContent = `Optimización: tiempos de fase saludables (máximo ${(slowestRatio * 100).toFixed(0)}% del timeout).`;
+    }
+
+    function updateRunSnapshot(detail, phases) {
+      if (detail.status !== 'running') {
+        latestRunSnapshot = null;
+        runElapsed.className = 'rounded-full bg-slate-100 px-2 py-0.5 text-slate-600';
+        runElapsed.textContent = 'Tiempo ejecución: -';
+        runTimeoutSignal.className = 'rounded-full bg-slate-100 px-2 py-0.5 text-slate-600';
+        runTimeoutSignal.textContent = 'Timeout fase: -';
+        return;
+      }
+
+      const reviewStartedAtMs = detail.started_at ? new Date(detail.started_at).getTime() : Date.now();
+      const runningPhase = phases.find((phase) => phase.status === 'running');
+      const currentPhaseStartedAtMs = runningPhase?.started_at ? new Date(runningPhase.started_at).getTime() : null;
+      latestRunSnapshot = { status: detail.status, reviewStartedAtMs, currentPhaseStartedAtMs };
+      updateLiveRuntimeIndicators();
     }
 
     async function loadPhases(id) {
@@ -192,12 +339,18 @@ import AppLayout from '../../layouts/AppLayout.astro';
           return;
         }
 
-        phaseList.innerHTML = phases.map((phase) => `
+        phaseList.innerHTML = phases.map((phase) => {
+          const startedAt = phase.started_at ? new Date(phase.started_at).getTime() : null;
+          const finishedAt = phase.finished_at ? new Date(phase.finished_at).getTime() : null;
+          const phaseDuration = startedAt ? formatDuration((finishedAt || Date.now()) - startedAt) : '-';
+          return `
           <div class="mb-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
             <div class="text-sm font-semibold text-slate-900">${phase.phase_key} · <span class="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-normal">${phase.status}</span> · score: ${phase.score ?? '-'}</div>
+            <div class="mt-1 text-[11px] text-slate-500">Duración fase: ${phaseDuration}</div>
             <div class="mt-1 text-xs text-slate-600">${phase.summary || '-'}</div>
           </div>
-        `).join('');
+        `;
+        }).join('');
       } catch {
         runProgress.textContent = 'Progreso: error cargando fases';
         phaseList.textContent = 'Error cargando fases.';
@@ -245,6 +398,8 @@ import AppLayout from '../../layouts/AppLayout.astro';
       const phases = await phasesRes.json();
 
       applyReviewDetail(detail, options.silent ? 'runtime' : 'full');
+      updateRunSnapshot(detail, phases);
+      updateOptimizationHint(phases);
 
       const expectedTotal = await getActiveSkillCount();
       const finished = phases.filter((phase) => phase.status === 'done' || phase.status === 'failed').length;
@@ -253,12 +408,18 @@ import AppLayout from '../../layouts/AppLayout.astro';
       if (!phases.length) {
         phaseList.textContent = 'Sin fases registradas todavía.';
       } else {
-        phaseList.innerHTML = phases.map((phase) => `
+        phaseList.innerHTML = phases.map((phase) => {
+          const startedAt = phase.started_at ? new Date(phase.started_at).getTime() : null;
+          const finishedAt = phase.finished_at ? new Date(phase.finished_at).getTime() : null;
+          const phaseDuration = startedAt ? formatDuration((finishedAt || Date.now()) - startedAt) : '-';
+          return `
           <div class="mb-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
             <div class="text-sm font-semibold text-slate-900">${phase.phase_key} · <span class="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-normal">${phase.status}</span> · score: ${phase.score ?? '-'}</div>
+            <div class="mt-1 text-[11px] text-slate-500">Duración fase: ${phaseDuration}</div>
             <div class="mt-1 text-xs text-slate-600">${phase.summary || '-'}</div>
           </div>
-        `).join('');
+        `;
+        }).join('');
       }
 
       setUpdatedNow();
@@ -363,9 +524,16 @@ import AppLayout from '../../layouts/AppLayout.astro';
       editMsg.textContent = `Lanzando revisión #${id}...`;
       const response = await fetch(`${apiBase}/api/reviews/${id}/run`, { method: 'POST' });
       if (!response.ok) {
-        editMsg.textContent = response.status === 409
-          ? `La revisión #${id} ya está en ejecución.`
-          : `No se pudo lanzar la revisión #${id}.`;
+        if (response.status === 409) {
+          try {
+            const body = await response.json();
+            editMsg.textContent = body?.error || 'Solo se permite una revisión IA en ejecución a la vez.';
+          } catch {
+            editMsg.textContent = 'Solo se permite una revisión IA en ejecución a la vez.';
+          }
+        } else {
+          editMsg.textContent = `No se pudo lanzar la revisión #${id}.`;
+        }
         setRunButtonDisabled(editStatus.value === 'running', editStatus.value === 'running' ? 'En progreso' : 'Run IA');
         return;
       }
@@ -399,6 +567,12 @@ import AppLayout from '../../layouts/AppLayout.astro';
       runStateBadge.className = statusBadgeClass(null);
       runStateBadge.textContent = 'Estado: -';
       runProgress.textContent = 'Progreso: -';
+      runElapsed.className = 'rounded-full bg-slate-100 px-2 py-0.5 text-slate-600';
+      runElapsed.textContent = 'Tiempo ejecución: -';
+      runTimeoutSignal.className = 'rounded-full bg-slate-100 px-2 py-0.5 text-slate-600';
+      runTimeoutSignal.textContent = 'Timeout fase: -';
+      runOptimizationHint.className = 'rounded-full bg-slate-100 px-2 py-0.5 text-slate-600';
+      runOptimizationHint.textContent = 'Optimización: -';
       runUpdatedAt.textContent = 'Última actualización: -';
       phaseList.textContent = 'Selecciona una revisión para ver fases.';
       const url = new URL(window.location.href);
@@ -423,6 +597,7 @@ import AppLayout from '../../layouts/AppLayout.astro';
 
     const params = new URLSearchParams(window.location.search);
     const initialId = Number(params.get('id'));
+    void loadRuntimeConfig();
     if (initialId) {
       editId.value = String(initialId);
       loadReview(initialId);

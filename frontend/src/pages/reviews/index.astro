@@ -109,12 +109,12 @@ import AppLayout from '../../layouts/AppLayout.astro';
             <td class="border-b border-slate-200 px-2 py-2">
               <button class="mr-1 rounded bg-slate-100 px-2 py-1 text-xs" data-open="${review.id}" type="button">Detalle</button>
               <button
-                class="rounded px-2 py-1 text-xs text-white ${review.status === 'running' ? 'cursor-not-allowed bg-slate-400' : 'bg-blue-700'}"
+                class="rounded px-2 py-1 text-xs text-white ${review.status === 'running' || hasRunning ? 'cursor-not-allowed bg-slate-400' : 'bg-blue-700'}"
                 data-run="${review.id}"
                 data-status="${review.status}"
                 type="button"
-                ${review.status === 'running' ? 'disabled' : ''}
-              >${review.status === 'running' ? 'En progreso' : 'Run IA'}</button>
+                ${review.status === 'running' || hasRunning ? 'disabled' : ''}
+              >${review.status === 'running' ? 'En progreso' : (hasRunning ? 'Bloqueado' : 'Run IA')}</button>
             </td>
           </tr>
         `).join('');
@@ -130,8 +130,8 @@ import AppLayout from '../../layouts/AppLayout.astro';
           btn.addEventListener('click', async () => {
             const id = Number(btn.getAttribute('data-run'));
             const status = btn.getAttribute('data-status');
-            if (status === 'running') {
-              listMsg.textContent = `La revisión #${id} ya está en ejecución.`;
+            if (status === 'running' || hasRunning) {
+              listMsg.textContent = 'Solo se permite una revisión IA en ejecución a la vez.';
               return;
             }
             btn.setAttribute('disabled', 'disabled');
@@ -141,9 +141,16 @@ import AppLayout from '../../layouts/AppLayout.astro';
             listMsg.textContent = `Lanzando revisión #${id}...`;
             const response = await fetch(`${apiBase}/api/reviews/${id}/run`, { method: 'POST' });
             if (!response.ok) {
-              listMsg.textContent = response.status === 409
-                ? `La revisión #${id} ya está en ejecución.`
-                : `No se pudo lanzar la revisión #${id}.`;
+              let errorText = `No se pudo lanzar la revisión #${id}.`;
+              if (response.status === 409) {
+                try {
+                  const body = await response.json();
+                  errorText = body?.error || 'Solo se permite una revisión IA en ejecución a la vez.';
+                } catch {
+                  errorText = 'Solo se permite una revisión IA en ejecución a la vez.';
+                }
+              }
+              listMsg.textContent = errorText;
               btn.removeAttribute('disabled');
               btn.classList.remove('bg-slate-400', 'cursor-not-allowed');
               btn.classList.add('bg-blue-700');

@@ -127,11 +127,13 @@ docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/delet
 - Comprobar que `codex` existe en contenedor.
 - Comprobar auth de Codex CLI dentro del contenedor.
 - Revisar `details.codexError` en `review_phase_results`.
+- Si `codexError` indica JSON no parseable y cada fase tarda ~15s, subir `CODEX_CLI_TIMEOUT_MS` (recomendado `180000`).
 
 3. No se ejecutan tests.
 - Revisar fase `tests` en `review_phase_results.details.execution`.
 - Verificar que el repo tiene `package.json` con script `test`.
 - Revisar bloqueos de preflight en `details.securityPreflight.blockedReasons`.
+- En imágenes Alpine, ejecutar comandos con `sh` (no `bash`) para evitar `spawn bash ENOENT`.
 
 4. Error al cargar revisiones desde `/cr/`.
 - Verificar que frontend usa base path `/cr`.

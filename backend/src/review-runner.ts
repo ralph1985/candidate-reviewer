@@ -143,8 +143,9 @@ function codexCliArgs(): string[] {
 }
 
 function codexCliTimeoutMs(): number {
-  const raw = Number(process.env.CODEX_CLI_TIMEOUT_MS || 15000);
-  if (!Number.isFinite(raw) || raw <= 0) return 15000;
+  const defaultTimeout = 420000;
+  const raw = Number(process.env.CODEX_CLI_TIMEOUT_MS || defaultTimeout);
+  if (!Number.isFinite(raw) || raw <= 0) return defaultTimeout;
   return raw;
 }
 
@@ -310,14 +311,14 @@ function codexPrompt(
     challengeBlock.push(
       `Prueba detectada: ${challengeContext.matchedChallenge.key} (${challengeContext.matchedChallenge.name}).`,
       'Enunciado oficial de la prueba:',
-      trimForPrompt(challengeContext.matchedChallenge.content, 14000)
+      trimForPrompt(challengeContext.matchedChallenge.content, 5000)
     );
   } else {
     challengeBlock.push('Prueba detectada: no determinada con certeza. Sé explícito si falta contexto.');
   }
   if ((challengeContext.globalRequirements || []).length > 0) {
     const rendered = (challengeContext.globalRequirements || [])
-      .map((item) => `${item.key} (${item.name}):\n${trimForPrompt(item.content, 6000)}`)
+      .map((item) => `${item.key} (${item.name}):\n${trimForPrompt(item.content, 2500)}`)
       .join('\n\n');
     challengeBlock.push('Requisitos globales a considerar:', rendered);
   }
@@ -445,7 +446,7 @@ async function runCommandInRepo(
   let errorMessage: string | null = null;
 
   try {
-    const result = await execFileAsync('bash', ['-lc', command], {
+    const result = await execFileAsync('sh', ['-lc', command], {
       cwd: repoPath,
       timeout,
       maxBuffer: 6 * 1024 * 1024,
@@ -573,12 +574,13 @@ async function runCodexExecWithSchema(repoPath: string, prompt: string): Promise
       summary: { type: 'string', minLength: 1 },
       details: {
         type: 'object',
+        required: ['strengths', 'risks', 'notes'],
         properties: {
           strengths: { type: 'array', items: { type: 'string' } },
           risks: { type: 'array', items: { type: 'string' } },
           notes: { type: 'array', items: { type: 'string' } }
         },
-        additionalProperties: true
+        additionalProperties: false
       }
     },
     additionalProperties: false
