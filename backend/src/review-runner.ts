@@ -183,8 +183,12 @@ function codexCliArgs(): string[] {
     .filter(Boolean);
 }
 
+function codexForceNoSandbox(): boolean {
+  return process.env.CODEX_CLI_FORCE_NO_SANDBOX === 'true';
+}
+
 function withNoSandboxArgs(args: string[]): string[] {
-  const merged = [...args];
+  const merged = args.filter((arg) => arg !== '--full-auto');
   if (!merged.includes('--dangerously-bypass-approvals-and-sandbox')) {
     merged.push('--dangerously-bypass-approvals-and-sandbox');
   }
@@ -817,7 +821,11 @@ async function runTestsIfAvailable(
 
   const secureInstallEnv = {
     npm_config_ignore_scripts: 'true',
+    npm_config_production: 'false',
+    npm_config_include: 'dev',
     YARN_ENABLE_SCRIPTS: 'false',
+    YARN_PRODUCTION: 'false',
+    NODE_ENV: 'development',
     PNPM_IGNORE_SCRIPTS: 'true'
   };
 
@@ -858,6 +866,7 @@ type CodexExecResult = {
   mergedOutput: string;
   schemaOutput: string | null;
   errorMessage: string | null;
+  sandboxIssueDetected: boolean;
 };
 
 async function runCodexExecWithSchema(
@@ -865,7 +874,8 @@ async function runCodexExecWithSchema(
   prompt: string,
   abortSignal?: AbortSignal,
   context?: RunnerContext,
-  phaseKey?: string
+  phaseKey?: string,
+  forceNoSandbox = false
 ): Promise<CodexExecResult> {
   const schemaPath = path.join(repoPath, '.candidate-review-schema.json');
   const outputPath = path.join(repoPath, '.candidate-review-output.json');
@@ -910,8 +920,10 @@ async function runCodexExecWithSchema(
     prompt
   ];
 
-  let args = buildExecArgs(baseArgs);
+  let noSandboxMode = forceNoSandbox;
+  let args = buildExecArgs(noSandboxMode ? withNoSandboxArgs(baseArgs) : baseArgs);
   let commandLabel = `${codexCliBin()} ${args.slice(0, -1).join(' ')} <prompt>`;
+  let sandboxIssueDetected = false;
 
   try {
     let commandResult = await runExecutableInRepo(
@@ -926,6 +938,8 @@ async function runCodexExecWithSchema(
       commandLabel
     );
     if (isSandboxNamespaceError(commandResult.output || commandResult.errorMessage || '')) {
+      sandboxIssueDetected = true;
+      noSandboxMode = true;
       emitRuntimeEvent(context, {
         type: 'runner_info',
         phaseKey,
@@ -957,7 +971,7 @@ async function runCodexExecWithSchema(
   await rm(outputPath, { force: true });
 
   const mergedOutput = [stdout, stderr].filter(Boolean).join('\n').trim();
-  return { mergedOutput, schemaOutput, errorMessage };
+  return { mergedOutput, schemaOutput, errorMessage, sandboxIssueDetected: noSandboxMode || sandboxIssueDetected };
 }
 
 async function prepareRepository(
@@ -1070,6 +1084,7 @@ export async function runPhasedReview(
   };
 
   let securityPreflight: SecurityPreflightResult | null = null;
+  let forceNoSandboxForCodex = codexForceNoSandbox();
 
   try {
     for (const skill of skills) {
@@ -1152,8 +1167,12 @@ export async function runPhasedReview(
             codexPrompt(skill, metrics, challengeContext),
             context?.abortSignal,
             context,
-            skill.key
+            skill.key,
+            forceNoSandboxForCodex
           );
+          if (codexResult.sandboxIssueDetected) {
+            forceNoSandboxForCodex = true;
+          }
           const raw = codexResult.schemaOutput?.trim() || codexResult.mergedOutput;
           if (!raw) {
             throw new Error(`Codex CLI fallo antes de JSON valido: ${codexResult.errorMessage || 'sin salida util'}`);
