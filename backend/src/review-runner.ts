@@ -183,6 +183,23 @@ function codexCliArgs(): string[] {
     .filter(Boolean);
 }
 
+function withNoSandboxArgs(args: string[]): string[] {
+  const merged = [...args];
+  if (!merged.includes('--dangerously-bypass-approvals-and-sandbox')) {
+    merged.push('--dangerously-bypass-approvals-and-sandbox');
+  }
+  return merged;
+}
+
+function isSandboxNamespaceError(text: string): boolean {
+  const lowered = text.toLowerCase();
+  return (
+    lowered.includes('no permissions to create a new namespace') ||
+    lowered.includes('kernel.unprivileged_userns_clone') ||
+    lowered.includes('bwrap:')
+  );
+}
+
 function codexCliTimeoutMs(): number {
   const defaultTimeout = 420000;
   const raw = Number(process.env.CODEX_CLI_TIMEOUT_MS || defaultTimeout);
@@ -497,6 +514,7 @@ async function runCommandInRepo(
       cwd: repoPath,
       env: { ...process.env, CI: '1', ...extraEnv }
     });
+    child.stdin.end();
 
     let stdout = '';
     let stderr = '';
@@ -627,6 +645,7 @@ async function runExecutableInRepo(
       cwd: repoPath,
       env: { ...process.env, CI: '1', ...extraEnv }
     });
+    child.stdin.end();
 
     let stdout = '';
     let stderr = '';
@@ -876,14 +895,26 @@ async function runCodexExecWithSchema(
   let stderr = '';
   let errorMessage: string | null = null;
 
-  const args = [...codexCliArgs()];
-  if (!args.includes('--full-auto')) args.push('--full-auto');
-  if (!args.includes('--skip-git-repo-check')) args.push('--skip-git-repo-check');
-  args.push('--output-schema', schemaPath, '--output-last-message', outputPath, '--color', 'never', prompt);
-  const commandLabel = `${codexCliBin()} ${args.slice(0, -1).join(' ')} <prompt>`;
+  const baseArgs = [...codexCliArgs()];
+  if (!baseArgs.includes('--full-auto')) baseArgs.push('--full-auto');
+  if (!baseArgs.includes('--skip-git-repo-check')) baseArgs.push('--skip-git-repo-check');
+
+  const buildExecArgs = (args: string[]) => [
+    ...args,
+    '--output-schema',
+    schemaPath,
+    '--output-last-message',
+    outputPath,
+    '--color',
+    'never',
+    prompt
+  ];
+
+  let args = buildExecArgs(baseArgs);
+  let commandLabel = `${codexCliBin()} ${args.slice(0, -1).join(' ')} <prompt>`;
 
   try {
-    const commandResult = await runExecutableInRepo(
+    let commandResult = await runExecutableInRepo(
       repoPath,
       codexCliBin(),
       args,
@@ -894,6 +925,26 @@ async function runCodexExecWithSchema(
       phaseKey,
       commandLabel
     );
+    if (isSandboxNamespaceError(commandResult.output || commandResult.errorMessage || '')) {
+      emitRuntimeEvent(context, {
+        type: 'runner_info',
+        phaseKey,
+        message: 'Codex sandbox no disponible en contenedor; reintentando sin sandbox.'
+      });
+      args = buildExecArgs(withNoSandboxArgs(baseArgs));
+      commandLabel = `${codexCliBin()} ${args.slice(0, -1).join(' ')} <prompt>`;
+      commandResult = await runExecutableInRepo(
+        repoPath,
+        codexCliBin(),
+        args,
+        codexCliTimeoutMs(),
+        {},
+        abortSignal,
+        context,
+        phaseKey,
+        commandLabel
+      );
+    }
     if (!commandResult.ok) {
       errorMessage = commandResult.errorMessage || 'Codex exec failed';
     }
