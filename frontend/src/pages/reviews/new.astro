@@ -7,13 +7,27 @@ import AppLayout from '../../layouts/AppLayout.astro';
     <form class="space-y-5" id="create-form">
       <fieldset class="grid gap-3 rounded-xl border border-slate-200 p-4 md:grid-cols-2">
         <legend class="px-1 text-sm font-semibold text-slate-900">Información general</legend>
-        <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="candidate-name" placeholder="Candidato" required />
-        <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="github-url" type="url" placeholder="URL del repositorio" required />
-        <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="deploy-url" type="url" placeholder="URL de despliegue (opcional)" />
-        <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="exercise-name" placeholder="Ejercicio" />
-        <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="reviewer-name" placeholder="Evaluador" />
-        <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="reviewer-email" type="email" placeholder="Email evaluador" />
-        <input class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-2" id="reviewed-at" type="datetime-local" />
+        <label class="block text-xs font-medium text-slate-700" for="candidate-name">Candidato
+          <input class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="candidate-name" placeholder="Nombre y apellidos" required />
+        </label>
+        <label class="block text-xs font-medium text-slate-700" for="github-url">URL del repositorio
+          <input class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="github-url" type="url" placeholder="https://github.com/usuario/repo" required />
+        </label>
+        <label class="block text-xs font-medium text-slate-700" for="deploy-url">URL de despliegue (opcional)
+          <input class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="deploy-url" type="url" placeholder="https://..." />
+        </label>
+        <label class="block text-xs font-medium text-slate-700" for="exercise-name">Ejercicio
+          <input class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="exercise-name" placeholder="Ej. Memory" />
+        </label>
+        <label class="block text-xs font-medium text-slate-700" for="reviewer-name">Evaluador
+          <input class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="reviewer-name" placeholder="Nombre evaluador" />
+        </label>
+        <label class="block text-xs font-medium text-slate-700" for="reviewer-email">Email evaluador
+          <input class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="reviewer-email" type="email" placeholder="nombre@empresa.com" />
+        </label>
+        <label class="block text-xs font-medium text-slate-700 md:col-span-2" for="reviewed-at">Fecha de revisión
+          <input class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="reviewed-at" type="datetime-local" />
+        </label>
       </fieldset>
 
       <fieldset class="rounded-xl border border-slate-200 p-4">
@@ -36,11 +50,21 @@ import AppLayout from '../../layouts/AppLayout.astro';
 
       <fieldset class="space-y-3 rounded-xl border border-slate-200 p-4">
         <legend class="px-1 text-sm font-semibold text-slate-900">Cierre</legend>
-        <textarea class="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="intake-conclusions" placeholder="Conclusiones"></textarea>
-        <textarea class="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="predefined-questions" placeholder="Preguntas predefinidas (una por línea)"></textarea>
-        <textarea class="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="other-questions" placeholder="Otras preguntas para entrevista"></textarea>
-        <textarea class="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="good-practices" placeholder="Buenas prácticas"></textarea>
-        <textarea class="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="design-patterns" placeholder="Patrones de diseño y arquitectura"></textarea>
+        <label class="block text-xs font-medium text-slate-700" for="intake-conclusions">Conclusiones
+          <textarea class="mt-1 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="intake-conclusions" placeholder="Resumen final de la valoración"></textarea>
+        </label>
+        <label class="block text-xs font-medium text-slate-700" for="predefined-questions">Preguntas predefinidas
+          <textarea class="mt-1 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="predefined-questions" placeholder="Una pregunta por línea"></textarea>
+        </label>
+        <label class="block text-xs font-medium text-slate-700" for="other-questions">Otras preguntas para entrevista
+          <textarea class="mt-1 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="other-questions" placeholder="Preguntas adicionales"></textarea>
+        </label>
+        <label class="block text-xs font-medium text-slate-700" for="good-practices">Buenas prácticas
+          <textarea class="mt-1 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="good-practices" placeholder="Notas de buenas prácticas detectadas"></textarea>
+        </label>
+        <label class="block text-xs font-medium text-slate-700" for="design-patterns">Patrones de diseño y arquitectura
+          <textarea class="mt-1 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="design-patterns" placeholder="Observaciones de diseño/arquitectura"></textarea>
+        </label>
       </fieldset>
 
       <button class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white" type="submit">Crear revisión</button>
