@@ -109,7 +109,7 @@ import AppLayout from '../../layouts/AppLayout.astro';
             <td class="border-b border-slate-200 px-2 py-2">
               <button class="mr-1 rounded bg-slate-100 px-2 py-1 text-xs" data-open="${review.id}" type="button">Detalle</button>
               <button
-                class="rounded px-2 py-1 text-xs text-white ${review.status === 'running' || hasRunning ? 'cursor-not-allowed bg-slate-400' : 'bg-blue-700'}"
+                class="rounded px-2 py-1 text-xs text-white ${review.status === 'running' || hasRunning ? 'cursor-not-allowed bg-slate-400' : 'bg-emerald-700'}"
                 data-run="${review.id}"
                 data-status="${review.status}"
                 type="button"
@@ -142,7 +142,7 @@ import AppLayout from '../../layouts/AppLayout.astro';
               return;
             }
             btn.setAttribute('disabled', 'disabled');
-            btn.classList.remove('bg-blue-700');
+            btn.classList.remove('bg-emerald-700');
             btn.classList.add('bg-slate-400', 'cursor-not-allowed');
             btn.textContent = 'En progreso';
             listMsg.textContent = `Lanzando revisión #${id}...`;
@@ -160,7 +160,7 @@ import AppLayout from '../../layouts/AppLayout.astro';
               listMsg.textContent = errorText;
               btn.removeAttribute('disabled');
               btn.classList.remove('bg-slate-400', 'cursor-not-allowed');
-              btn.classList.add('bg-blue-700');
+              btn.classList.add('bg-emerald-700');
               btn.textContent = 'Run IA';
               return;
             }

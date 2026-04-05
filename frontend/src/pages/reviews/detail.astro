@@ -76,7 +76,7 @@ import AppLayout from '../../layouts/AppLayout.astro';
     </label>
     <div class="mt-3 flex flex-wrap gap-2">
       <button class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white" id="save-review" type="button">Guardar cambios</button>
-      <button class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-800" id="run-review" type="button">Run IA</button>
+      <button class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white" id="run-review" type="button">Run IA</button>
       <button class="rounded-lg bg-rose-700 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60" id="stop-review" type="button" disabled>Stop IA</button>
       <button class="rounded-lg bg-rose-700 px-4 py-2 text-sm font-medium text-white" id="clear-form" type="button">Limpiar</button>
     </div>
@@ -177,6 +177,9 @@ import AppLayout from '../../layouts/AppLayout.astro';
       runReviewBtn.disabled = disabled;
       runReviewBtn.classList.toggle('cursor-not-allowed', disabled);
       runReviewBtn.classList.toggle('opacity-70', disabled);
+      runReviewBtn.classList.toggle('bg-slate-400', disabled);
+      runReviewBtn.classList.toggle('bg-emerald-700', !disabled);
+      runReviewBtn.classList.toggle('text-white', true);
       if (label) runReviewBtn.textContent = label;
       else runReviewBtn.textContent = 'Run IA';
     }
