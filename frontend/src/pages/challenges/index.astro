@@ -15,12 +15,11 @@ import AppLayout from '../../layouts/AppLayout.astro';
   </section>
 
   <script type="module">
-    import { marked } from 'marked';
-
     const appBase = window.location.pathname.startsWith('/cr/') ? '/cr' : '';
     const apiBase = appBase;
     const refreshBtn = document.getElementById('refresh-challenges');
     const challengesList = document.getElementById('challenges-list');
+    const markedModulePromise = import('https://cdn.jsdelivr.net/npm/marked/lib/marked.esm.js');
 
     function escapeHtml(value) {
       return String(value)
@@ -46,6 +45,7 @@ import AppLayout from '../../layouts/AppLayout.astro';
         const response = await fetch(`${apiBase}/api/challenges`);
         if (!response.ok) throw new Error('No se pudieron cargar enunciados');
         const data = await response.json();
+        const { marked } = await markedModulePromise;
 
         if (!Array.isArray(data) || data.length === 0) {
           challengesList.innerHTML = '<div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">No hay enunciados cargados.</div>';
