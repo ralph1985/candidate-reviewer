@@ -35,6 +35,7 @@ cp .env.example .env
 3. Ajusta `.env` según necesidad:
 - `CODEX_CLI_ENABLED=true` para usar Codex CLI real.
 - `CODEX_CLI_ENABLED=false` si solo quieres probar UI/API con fallback.
+- `CODEX_CLI_FORCE_NO_SANDBOX=true` recomendado en Docker para evitar errores de `bwrap`/namespaces.
 - Opcional: si quieres una URL de BD distinta para modo local, exporta `LOCAL_DATABASE_URL` antes de levantar.
 
 4. Levanta todo (app + PostgreSQL local).

@@ -155,6 +155,7 @@ docker exec -i postgres-shared psql -U postgres -d candidate_reviewer < db/delet
 2. Las fases salen con `engine=heuristic-fallback`.
 - Comprobar que `codex` existe en contenedor.
 - Comprobar auth de Codex CLI dentro del contenedor.
+- Si aparecen errores `bwrap`/namespaces en consola, usar `CODEX_CLI_FORCE_NO_SANDBOX=true` y reiniciar contenedor.
 - Revisar `details.codexError` en `review_phase_results`.
 - Si `codexError` indica JSON no parseable y cada fase tarda ~15s, subir `CODEX_CLI_TIMEOUT_MS` (recomendado `180000`).
 

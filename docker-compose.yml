@@ -6,6 +6,8 @@ services:
     container_name: candidate-reviewer
     env_file:
       - .env
+    environment:
+      - CODEX_CLI_FORCE_NO_SANDBOX=${CODEX_CLI_FORCE_NO_SANDBOX:-true}
     volumes:
       - ${HOME}/.codex:/root/.codex
     ports:

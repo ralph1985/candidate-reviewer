@@ -25,6 +25,7 @@ services:
       - .env
     environment:
       DATABASE_URL: ${LOCAL_DATABASE_URL:-postgres://postgres:postgres@candidate-reviewer-db:5432/candidate_reviewer}
+      CODEX_CLI_FORCE_NO_SANDBOX: ${CODEX_CLI_FORCE_NO_SANDBOX:-true}
     depends_on:
       candidate-reviewer-db:
         condition: service_healthy
