@@ -3,7 +3,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { pool } from './db';
-import { runPhasedReview, type ReviewSkillDefinition } from './review-runner';
+import { runPhasedReview, type ReviewSkillDefinition, type RunnerRuntimeEvent } from './review-runner';
 import {
   loadActiveChallengeDefinitions,
   resolveChallengeForReview,
@@ -154,6 +154,37 @@ const REVIEW_SELECT_COLUMNS = `
   finished_at
 `;
 
+const liveLogSubscribers = new Map<number, Set<NodeJS.WritableStream>>();
+const liveLogBacklog = new Map<number, RunnerRuntimeEvent[]>();
+const LIVE_LOG_BACKLOG_LIMIT = 1200;
+
+function pushLiveLogBacklog(reviewId: number, event: RunnerRuntimeEvent): void {
+  const queue = liveLogBacklog.get(reviewId) || [];
+  queue.push(event);
+  if (queue.length > LIVE_LOG_BACKLOG_LIMIT) {
+    queue.splice(0, queue.length - LIVE_LOG_BACKLOG_LIMIT);
+  }
+  liveLogBacklog.set(reviewId, queue);
+}
+
+function sendSseEvent(stream: NodeJS.WritableStream, event: RunnerRuntimeEvent): void {
+  stream.write(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+function publishLiveLogEvent(reviewId: number, event: Omit<RunnerRuntimeEvent, 'at' | 'reviewId'>): void {
+  const payload: RunnerRuntimeEvent = {
+    at: new Date().toISOString(),
+    reviewId,
+    ...event
+  };
+  pushLiveLogBacklog(reviewId, payload);
+  const subscribers = liveLogSubscribers.get(reviewId);
+  if (!subscribers || subscribers.size === 0) return;
+  for (const stream of subscribers) {
+    sendSseEvent(stream, payload);
+  }
+}
+
 async function upsertPhaseResult(
   reviewId: number,
   phase: {
@@ -212,6 +243,7 @@ async function loadActiveSkills(): Promise<ReviewSkillDefinition[]> {
 
 async function executeReviewJob(id: number, githubUrl: string, exerciseName: string | null): Promise<void> {
   const abortController = runningReviewControllers.get(id);
+  publishLiveLogEvent(id, { type: 'runner_info', message: `Iniciando revisión automática #${id}` });
   try {
     const skills = await loadActiveSkills();
     const challenges = await loadActiveChallengeDefinitions();
@@ -225,6 +257,18 @@ async function executeReviewJob(id: number, githubUrl: string, exerciseName: str
       {
         reviewId: id,
         abortSignal: abortController?.signal,
+        onRuntimeEvent: (event) => {
+          publishLiveLogEvent(id, {
+            type: event.type,
+            phaseKey: event.phaseKey,
+            command: event.command,
+            stream: event.stream,
+            chunk: event.chunk,
+            exitCode: event.exitCode,
+            ok: event.ok,
+            message: event.message
+          });
+        },
         exerciseName: exerciseName || undefined,
         matchedChallenge: resolvedChallenge.matchedChallenge
           ? {
@@ -252,6 +296,7 @@ async function executeReviewJob(id: number, githubUrl: string, exerciseName: str
        WHERE id = $1`,
       [id, JSON.stringify(result.scores), result.finalReport, result.recommendation]
     );
+    publishLiveLogEvent(id, { type: 'runner_info', message: `Revisión #${id} finalizada correctamente.` });
   } catch (error) {
     const message = isAbortError(error)
       ? 'Revisión cancelada por usuario.'
@@ -271,8 +316,13 @@ async function executeReviewJob(id: number, githubUrl: string, exerciseName: str
         isAbortError(error) ? 'cancelled' : 'failed'
       ]
     );
+    publishLiveLogEvent(id, {
+      type: isAbortError(error) ? 'runner_info' : 'runner_error',
+      message
+    });
   } finally {
     runningReviewControllers.delete(id);
+    publishLiveLogEvent(id, { type: 'runner_info', message: `Runner detenido para revisión #${id}.` });
   }
 }
 
@@ -297,6 +347,46 @@ app.get('/health', async () => ({ ok: true }));
 app.get('/api/runtime-config', async (_, reply) => {
   return reply.send({
     codexCliTimeoutMs: codexCliTimeoutMs()
+  });
+});
+
+app.get<{ Params: { id: string } }>('/api/reviews/:id/live-log', async (request, reply) => {
+  const id = Number(request.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return reply.code(400).send({ error: 'id inválido' });
+  }
+
+  reply.hijack();
+  reply.raw.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+  reply.raw.write('\n');
+
+  const stream = reply.raw as unknown as NodeJS.WritableStream;
+  const backlog = liveLogBacklog.get(id) || [];
+  for (const event of backlog) {
+    sendSseEvent(stream, event);
+  }
+
+  const subscribers = liveLogSubscribers.get(id) || new Set<NodeJS.WritableStream>();
+  subscribers.add(stream);
+  liveLogSubscribers.set(id, subscribers);
+
+  const heartbeat = setInterval(() => {
+    stream.write(': ping\n\n');
+  }, 15000);
+
+  reply.raw.on('close', () => {
+    clearInterval(heartbeat);
+    const current = liveLogSubscribers.get(id);
+    if (!current) return;
+    current.delete(stream);
+    if (current.size === 0) {
+      liveLogSubscribers.delete(id);
+    }
   });
 });
 
@@ -802,6 +892,8 @@ app.post<{ Params: { id: string } }>('/api/reviews/:id/run', async (request, rep
     await client.query(`DELETE FROM review_phase_results WHERE review_id = $1`, [id]);
 
     await client.query('COMMIT');
+    liveLogBacklog.set(id, []);
+    publishLiveLogEvent(id, { type: 'runner_info', message: `Review #${id} marcada como running.` });
     const abortController = new AbortController();
     runningReviewControllers.set(id, abortController);
     void executeReviewJob(id, review.github_url, review.exercise_name);
@@ -834,6 +926,7 @@ app.post<{ Params: { id: string } }>('/api/reviews/:id/stop', async (request, re
   if (controller) {
     controller.abort();
   }
+  publishLiveLogEvent(id, { type: 'runner_info', message: `Stop solicitado por usuario para review #${id}.` });
 
   await pool.query(
     `UPDATE reviews

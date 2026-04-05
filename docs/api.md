@@ -102,6 +102,13 @@ Body (campos opcionales):
 - Devuelve `202` cuando consigue abortar la ejecución en curso.
 - Si la revisión no está en `running`, devuelve `409`.
 
+### Consola en vivo (solo lectura, SSE)
+
+`GET /api/reviews/:id/live-log`
+
+- Stream `text/event-stream` con eventos en tiempo real del runner (`phase_start`, `command_start`, `command_output`, `command_end`, etc.).
+- La UI de detalle lo consume para mostrar la consola de ejecución.
+
 ## Importación histórica
 
 ### Importar revisión histórica desde JSON normalizado

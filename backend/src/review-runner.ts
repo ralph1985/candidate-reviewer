@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdtemp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -39,6 +39,7 @@ export type RunnerContext = {
   reviewId?: number;
   exerciseName?: string;
   abortSignal?: AbortSignal;
+  onRuntimeEvent?: (event: RunnerRuntimeEvent) => void;
   matchedChallenge?: {
     key: string;
     name: string;
@@ -52,6 +53,26 @@ export type RunnerContext = {
   }>;
 };
 
+export type RunnerRuntimeEvent = {
+  at: string;
+  type:
+    | 'phase_start'
+    | 'phase_end'
+    | 'command_start'
+    | 'command_output'
+    | 'command_end'
+    | 'runner_info'
+    | 'runner_error';
+  reviewId?: number;
+  phaseKey?: string;
+  command?: string;
+  stream?: 'stdout' | 'stderr';
+  chunk?: string;
+  exitCode?: number | null;
+  ok?: boolean;
+  message?: string;
+};
+
 function isAbortError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const candidate = error as { name?: string; code?: string; message?: string };
@@ -60,6 +81,15 @@ function isAbortError(error: unknown): boolean {
     candidate.code === 'ABORT_ERR' ||
     (typeof candidate.message === 'string' && candidate.message.toLowerCase().includes('aborted'))
   );
+}
+
+function emitRuntimeEvent(context: RunnerContext | undefined, event: Omit<RunnerRuntimeEvent, 'at' | 'reviewId'>): void {
+  if (!context?.onRuntimeEvent) return;
+  context.onRuntimeEvent({
+    at: new Date().toISOString(),
+    reviewId: context.reviewId,
+    ...event
+  });
 }
 
 export type PhasedReviewResult = {
@@ -451,41 +481,264 @@ async function runCommandInRepo(
   command: string,
   timeout: number,
   extraEnv: Record<string, string>,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  context?: RunnerContext,
+  phaseKey?: string
 ): Promise<{ ok: boolean; output: string; errorMessage: string | null }> {
-  let stdout = '';
-  let stderr = '';
-  let errorMessage: string | null = null;
+  emitRuntimeEvent(context, { type: 'command_start', phaseKey, command });
 
-  try {
-    const result = await execFileAsync('sh', ['-lc', command], {
+  const result = await new Promise<{
+    ok: boolean;
+    output: string;
+    errorMessage: string | null;
+    exitCode: number | null;
+  }>((resolve, reject) => {
+    const child = spawn('sh', ['-lc', command], {
       cwd: repoPath,
-      timeout,
-      maxBuffer: 6 * 1024 * 1024,
-      signal: abortSignal,
       env: { ...process.env, CI: '1', ...extraEnv }
     });
-    stdout = result.stdout || '';
-    stderr = result.stderr || '';
-  } catch (error) {
-    if (isAbortError(error)) throw error;
-    const typed = error as { stdout?: string; stderr?: string; message?: string };
-    stdout = typed.stdout || '';
-    stderr = typed.stderr || '';
-    errorMessage = typed.message || 'command failed';
-  }
 
-  return {
-    ok: !errorMessage,
-    output: capOutput([stdout, stderr].filter(Boolean).join('\n').trim()),
-    errorMessage
-  };
+    let stdout = '';
+    let stderr = '';
+    let resolved = false;
+    let timedOut = false;
+    let aborted = false;
+    let timeoutTimer: NodeJS.Timeout | null = null;
+    let abortTimer: NodeJS.Timeout | null = null;
+
+    const closeTimers = () => {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      if (abortTimer) clearTimeout(abortTimer);
+      timeoutTimer = null;
+      abortTimer = null;
+    };
+
+    const abortError = () => {
+      const err = new Error('Review execution aborted');
+      (err as Error & { name: string }).name = 'AbortError';
+      return err;
+    };
+
+    const abortHandler = () => {
+      aborted = true;
+      child.kill('SIGTERM');
+      abortTimer = setTimeout(() => child.kill('SIGKILL'), 2000);
+    };
+
+    if (abortSignal) {
+      if (abortSignal.aborted) {
+        abortHandler();
+      } else {
+        abortSignal.addEventListener('abort', abortHandler, { once: true });
+      }
+    }
+
+    timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+      abortTimer = setTimeout(() => child.kill('SIGKILL'), 2000);
+    }, timeout);
+
+    child.stdout.on('data', (chunk) => {
+      const text = String(chunk);
+      stdout += text;
+      emitRuntimeEvent(context, { type: 'command_output', phaseKey, command, stream: 'stdout', chunk: text });
+    });
+
+    child.stderr.on('data', (chunk) => {
+      const text = String(chunk);
+      stderr += text;
+      emitRuntimeEvent(context, { type: 'command_output', phaseKey, command, stream: 'stderr', chunk: text });
+    });
+
+    child.on('error', (error) => {
+      if (resolved) return;
+      resolved = true;
+      closeTimers();
+      reject(error);
+    });
+
+    child.on('close', (code) => {
+      if (resolved) return;
+      resolved = true;
+      closeTimers();
+      if (abortSignal) abortSignal.removeEventListener('abort', abortHandler);
+      if (aborted || abortSignal?.aborted) {
+        reject(abortError());
+        return;
+      }
+
+      const output = capOutput([stdout, stderr].filter(Boolean).join('\n').trim());
+      if (timedOut) {
+        resolve({
+          ok: false,
+          output,
+          errorMessage: `command timed out after ${Math.round(timeout / 1000)}s`,
+          exitCode: code
+        });
+        return;
+      }
+      if (code !== 0) {
+        resolve({
+          ok: false,
+          output,
+          errorMessage: `command failed with exit code ${code}`,
+          exitCode: code
+        });
+        return;
+      }
+      resolve({ ok: true, output, errorMessage: null, exitCode: code });
+    });
+  });
+
+  emitRuntimeEvent(context, {
+    type: 'command_end',
+    phaseKey,
+    command,
+    exitCode: result.exitCode,
+    ok: result.ok,
+    message: result.errorMessage || 'ok'
+  });
+
+  return { ok: result.ok, output: result.output, errorMessage: result.errorMessage };
+}
+
+async function runExecutableInRepo(
+  repoPath: string,
+  binary: string,
+  args: string[],
+  timeout: number,
+  extraEnv: Record<string, string>,
+  abortSignal?: AbortSignal,
+  context?: RunnerContext,
+  phaseKey?: string,
+  displayCommand?: string
+): Promise<{ ok: boolean; output: string; errorMessage: string | null }> {
+  const command = displayCommand || `${binary} ${args.join(' ')}`;
+  emitRuntimeEvent(context, { type: 'command_start', phaseKey, command });
+
+  const result = await new Promise<{
+    ok: boolean;
+    output: string;
+    errorMessage: string | null;
+    exitCode: number | null;
+  }>((resolve, reject) => {
+    const child = spawn(binary, args, {
+      cwd: repoPath,
+      env: { ...process.env, CI: '1', ...extraEnv }
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let resolved = false;
+    let timedOut = false;
+    let aborted = false;
+    let timeoutTimer: NodeJS.Timeout | null = null;
+    let abortTimer: NodeJS.Timeout | null = null;
+
+    const closeTimers = () => {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      if (abortTimer) clearTimeout(abortTimer);
+      timeoutTimer = null;
+      abortTimer = null;
+    };
+
+    const abortError = () => {
+      const err = new Error('Review execution aborted');
+      (err as Error & { name: string }).name = 'AbortError';
+      return err;
+    };
+
+    const abortHandler = () => {
+      aborted = true;
+      child.kill('SIGTERM');
+      abortTimer = setTimeout(() => child.kill('SIGKILL'), 2000);
+    };
+
+    if (abortSignal) {
+      if (abortSignal.aborted) {
+        abortHandler();
+      } else {
+        abortSignal.addEventListener('abort', abortHandler, { once: true });
+      }
+    }
+
+    timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+      abortTimer = setTimeout(() => child.kill('SIGKILL'), 2000);
+    }, timeout);
+
+    child.stdout.on('data', (chunk) => {
+      const text = String(chunk);
+      stdout += text;
+      emitRuntimeEvent(context, { type: 'command_output', phaseKey, command, stream: 'stdout', chunk: text });
+    });
+
+    child.stderr.on('data', (chunk) => {
+      const text = String(chunk);
+      stderr += text;
+      emitRuntimeEvent(context, { type: 'command_output', phaseKey, command, stream: 'stderr', chunk: text });
+    });
+
+    child.on('error', (error) => {
+      if (resolved) return;
+      resolved = true;
+      closeTimers();
+      reject(error);
+    });
+
+    child.on('close', (code) => {
+      if (resolved) return;
+      resolved = true;
+      closeTimers();
+      if (abortSignal) abortSignal.removeEventListener('abort', abortHandler);
+      if (aborted || abortSignal?.aborted) {
+        reject(abortError());
+        return;
+      }
+
+      const output = capOutput([stdout, stderr].filter(Boolean).join('\n').trim());
+      if (timedOut) {
+        resolve({
+          ok: false,
+          output,
+          errorMessage: `command timed out after ${Math.round(timeout / 1000)}s`,
+          exitCode: code
+        });
+        return;
+      }
+      if (code !== 0) {
+        resolve({
+          ok: false,
+          output,
+          errorMessage: `command failed with exit code ${code}`,
+          exitCode: code
+        });
+        return;
+      }
+      resolve({ ok: true, output, errorMessage: null, exitCode: code });
+    });
+  });
+
+  emitRuntimeEvent(context, {
+    type: 'command_end',
+    phaseKey,
+    command,
+    exitCode: result.exitCode,
+    ok: result.ok,
+    message: result.errorMessage || 'ok'
+  });
+
+  return { ok: result.ok, output: result.output, errorMessage: result.errorMessage };
 }
 
 async function runTestsIfAvailable(
   repoPath: string,
   security: SecurityPreflightResult,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  context?: RunnerContext,
+  phaseKey?: string
 ): Promise<TestExecutionResult> {
   const node = await detectNodeProject(repoPath);
   if (!node.exists || !node.packageJson) {
@@ -549,7 +802,15 @@ async function runTestsIfAvailable(
     PNPM_IGNORE_SCRIPTS: 'true'
   };
 
-  const installResult = await runCommandInRepo(repoPath, installCommand, testsTimeoutMs(), secureInstallEnv, abortSignal);
+  const installResult = await runCommandInRepo(
+    repoPath,
+    installCommand,
+    testsTimeoutMs(),
+    secureInstallEnv,
+    abortSignal,
+    context,
+    phaseKey
+  );
   if (!installResult.ok) {
     return {
       detected: true,
@@ -562,7 +823,7 @@ async function runTestsIfAvailable(
     };
   }
 
-  const testResult = await runCommandInRepo(repoPath, testCommand, testsTimeoutMs(), {}, abortSignal);
+  const testResult = await runCommandInRepo(repoPath, testCommand, testsTimeoutMs(), {}, abortSignal, context, phaseKey);
   return {
     detected: true,
     ran: true,
@@ -580,7 +841,13 @@ type CodexExecResult = {
   errorMessage: string | null;
 };
 
-async function runCodexExecWithSchema(repoPath: string, prompt: string, abortSignal?: AbortSignal): Promise<CodexExecResult> {
+async function runCodexExecWithSchema(
+  repoPath: string,
+  prompt: string,
+  abortSignal?: AbortSignal,
+  context?: RunnerContext,
+  phaseKey?: string
+): Promise<CodexExecResult> {
   const schemaPath = path.join(repoPath, '.candidate-review-schema.json');
   const outputPath = path.join(repoPath, '.candidate-review-output.json');
 
@@ -609,27 +876,28 @@ async function runCodexExecWithSchema(repoPath: string, prompt: string, abortSig
   let stderr = '';
   let errorMessage: string | null = null;
 
-  try {
-    const args = [...codexCliArgs()];
-    if (!args.includes('--full-auto')) args.push('--full-auto');
-    if (!args.includes('--skip-git-repo-check')) args.push('--skip-git-repo-check');
-    args.push('--output-schema', schemaPath, '--output-last-message', outputPath, '--color', 'never', prompt);
+  const args = [...codexCliArgs()];
+  if (!args.includes('--full-auto')) args.push('--full-auto');
+  if (!args.includes('--skip-git-repo-check')) args.push('--skip-git-repo-check');
+  args.push('--output-schema', schemaPath, '--output-last-message', outputPath, '--color', 'never', prompt);
+  const commandLabel = `${codexCliBin()} ${args.slice(0, -1).join(' ')} <prompt>`;
 
-    const execResult = await execFileAsync(codexCliBin(), args, {
-      cwd: repoPath,
-      timeout: codexCliTimeoutMs(),
-      maxBuffer: 4 * 1024 * 1024,
-      signal: abortSignal,
-      env: { ...process.env, CI: '1' }
-    });
-    stdout = execResult.stdout || '';
-    stderr = execResult.stderr || '';
-  } catch (error) {
-    if (isAbortError(error)) throw error;
-    const typed = error as { stdout?: string; stderr?: string; message?: string };
-    stdout = typed.stdout || '';
-    stderr = typed.stderr || '';
-    errorMessage = typed.message || 'Codex exec failed';
+  try {
+    const commandResult = await runExecutableInRepo(
+      repoPath,
+      codexCliBin(),
+      args,
+      codexCliTimeoutMs(),
+      {},
+      abortSignal,
+      context,
+      phaseKey,
+      commandLabel
+    );
+    if (!commandResult.ok) {
+      errorMessage = commandResult.errorMessage || 'Codex exec failed';
+    }
+    stdout = commandResult.output || '';
   } finally {
     await rm(schemaPath, { force: true });
   }
@@ -639,25 +907,6 @@ async function runCodexExecWithSchema(repoPath: string, prompt: string, abortSig
 
   const mergedOutput = [stdout, stderr].filter(Boolean).join('\n').trim();
   return { mergedOutput, schemaOutput, errorMessage };
-}
-
-async function runCodexPhase(
-  skill: ReviewSkillDefinition,
-  repoPath: string,
-  metrics: RepoMetrics,
-  challengeContext: {
-    matchedChallenge?: { key: string; name: string; content: string } | null;
-    globalRequirements?: Array<{ key: string; name: string; content: string }>;
-  },
-  abortSignal?: AbortSignal
-): Promise<{ score: number; summary: string; details: Record<string, unknown>; rawOutput: string }> {
-  const execResult = await runCodexExecWithSchema(repoPath, codexPrompt(skill, metrics, challengeContext), abortSignal);
-  const raw = execResult.schemaOutput?.trim() || execResult.mergedOutput;
-  if (!raw) {
-    throw new Error(`Codex CLI fallo antes de JSON valido: ${execResult.errorMessage || 'sin salida util'}`);
-  }
-  const parsed = parseCodexResponse(raw);
-  return { ...parsed, rawOutput: raw };
 }
 
 async function prepareRepository(
@@ -681,11 +930,20 @@ async function prepareRepository(
     cleanupOnExit = true;
   }
 
-  await execFileAsync('git', ['clone', '--depth', '1', githubUrl, workspacePath], {
-    timeout: 180000,
-    maxBuffer: 2 * 1024 * 1024,
-    signal: context?.abortSignal
-  });
+  const cloneResult = await runExecutableInRepo(
+    process.cwd(),
+    'git',
+    ['clone', '--depth', '1', githubUrl, workspacePath],
+    180000,
+    {},
+    context?.abortSignal,
+    context,
+    'prepare_repository',
+    `git clone --depth 1 ${githubUrl} ${workspacePath}`
+  );
+  if (!cloneResult.ok) {
+    throw new Error(`No se pudo preparar el repositorio para revisión: ${cloneResult.errorMessage || 'error desconocido'}`);
+  }
 
   const repoStat = await stat(workspacePath);
   if (!repoStat.isDirectory()) {
@@ -789,6 +1047,7 @@ export async function runPhasedReview(
         }))
       };
       let rawOutput: string | null = null;
+      emitRuntimeEvent(context, { type: 'phase_start', phaseKey: skill.key, message: `Iniciando fase ${skill.key}` });
 
       if (skill.key === 'security') {
         securityPreflight = await runSecurityPreflight(workspacePath);
@@ -808,7 +1067,7 @@ export async function runPhasedReview(
           securityPreflight = await runSecurityPreflight(workspacePath);
         }
 
-        const execution = await runTestsIfAvailable(workspacePath, securityPreflight, context?.abortSignal);
+        const execution = await runTestsIfAvailable(workspacePath, securityPreflight, context?.abortSignal, context, skill.key);
         const heuristic = heuristicScoreByPhase(skill.key, metrics);
         score = mergeTestScore(heuristic, execution);
 
@@ -837,11 +1096,23 @@ export async function runPhasedReview(
         rawOutput = execution.output || null;
       } else if (codexCliEnabled()) {
         try {
-          const codexResult = await runCodexPhase(skill, workspacePath, metrics, challengeContext, context?.abortSignal);
-          score = codexResult.score;
-          summary = codexResult.summary;
-          details = { ...details, ...codexResult.details, engine: 'codex-cli' };
-          rawOutput = codexResult.rawOutput;
+          const codexResult = await runCodexExecWithSchema(
+            workspacePath,
+            codexPrompt(skill, metrics, challengeContext),
+            context?.abortSignal,
+            context,
+            skill.key
+          );
+          const raw = codexResult.schemaOutput?.trim() || codexResult.mergedOutput;
+          if (!raw) {
+            throw new Error(`Codex CLI fallo antes de JSON valido: ${codexResult.errorMessage || 'sin salida util'}`);
+          }
+          const parsed = parseCodexResponse(raw);
+          const codexResultParsed = { ...parsed, rawOutput: raw };
+          score = codexResultParsed.score;
+          summary = codexResultParsed.summary;
+          details = { ...details, ...codexResultParsed.details, engine: 'codex-cli' };
+          rawOutput = codexResultParsed.rawOutput;
         } catch (error) {
           if (isAbortError(error)) throw error;
           const reason = error instanceof Error ? error.message : 'Codex CLI fallo';
@@ -883,6 +1154,12 @@ export async function runPhasedReview(
       };
       phases.push(phase);
       if (onPhase) await onPhase(phase);
+      emitRuntimeEvent(context, {
+        type: 'phase_end',
+        phaseKey: skill.key,
+        ok: status === 'done',
+        message: `Fase ${skill.key} finalizada con estado ${status}`
+      });
     }
   } finally {
     if (cleanupOnExit || workspaceCleanupEnabled()) {

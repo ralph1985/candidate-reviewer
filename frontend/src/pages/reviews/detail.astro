@@ -101,6 +101,14 @@ import AppLayout from '../../layouts/AppLayout.astro';
     <div class="mt-2 text-xs text-slate-500" id="phase-list">Selecciona una revisión para ver fases.</div>
   </section>
 
+  <section class="rounded-xl border border-slate-200 bg-white p-4">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <h3 class="text-sm font-semibold text-slate-900">Consola de ejecución (solo lectura)</h3>
+      <span class="text-xs text-slate-500" id="live-console-status">Sin conexión</span>
+    </div>
+    <pre class="mt-2 h-80 overflow-auto rounded-lg border border-slate-800 bg-slate-950 p-3 font-mono text-[11px] leading-relaxed text-slate-100" id="live-console">Selecciona una revisión para ver salida en tiempo real.</pre>
+  </section>
+
   <script type="module">
     const appBase = window.location.pathname.startsWith('/cr/') ? '/cr' : '';
     const apiBase = appBase;
@@ -136,6 +144,8 @@ import AppLayout from '../../layouts/AppLayout.astro';
     const runTimeoutSignal = document.getElementById('run-timeout-signal');
     const runOptimizationHint = document.getElementById('run-optimization-hint');
     const runUpdatedAt = document.getElementById('run-updated-at');
+    const liveConsole = document.getElementById('live-console');
+    const liveConsoleStatus = document.getElementById('live-console-status');
 
     const POLL_INTERVAL_MS = 3000;
     const LIVE_TIMER_INTERVAL_MS = 1000;
@@ -146,6 +156,10 @@ import AppLayout from '../../layouts/AppLayout.astro';
     let activeSkillCountPromise = null;
     let latestRunSnapshot = null;
     let runtimePhaseTimeoutMs = PHASE_TIMEOUT_MS_FALLBACK;
+    let liveLogSource = null;
+    let liveLogReviewId = null;
+    let liveConsoleLines = [];
+    const LIVE_CONSOLE_MAX_LINES = 1500;
 
     function statusBadgeClass(status) {
       if (status === 'running') return 'rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800';
@@ -165,6 +179,112 @@ import AppLayout from '../../layouts/AppLayout.astro';
       runReviewBtn.classList.toggle('opacity-70', disabled);
       if (label) runReviewBtn.textContent = label;
       else runReviewBtn.textContent = 'Run IA';
+    }
+
+    function stripAnsi(input) {
+      return String(input || '').replaceAll(/\u001B\[[0-9;]*m/g, '');
+    }
+
+    function appendConsoleLines(rawLine) {
+      const lines = String(rawLine || '')
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .split('\n')
+        .map((line) => stripAnsi(line));
+      for (const line of lines) {
+        liveConsoleLines.push(line);
+      }
+      if (liveConsoleLines.length > LIVE_CONSOLE_MAX_LINES) {
+        liveConsoleLines = liveConsoleLines.slice(liveConsoleLines.length - LIVE_CONSOLE_MAX_LINES);
+      }
+      liveConsole.textContent = liveConsoleLines.join('\n');
+      liveConsole.scrollTop = liveConsole.scrollHeight;
+    }
+
+    function setLiveConsoleStatus(text) {
+      liveConsoleStatus.textContent = text;
+    }
+
+    function closeLiveLog() {
+      if (liveLogSource) {
+        liveLogSource.close();
+        liveLogSource = null;
+      }
+      liveLogReviewId = null;
+      setLiveConsoleStatus('Sin conexión');
+    }
+
+    function clearLiveConsole(text = 'Selecciona una revisión para ver salida en tiempo real.') {
+      liveConsoleLines = [];
+      liveConsole.textContent = text;
+    }
+
+    function formatTimestamp(iso) {
+      if (!iso) return '--:--:--';
+      const date = new Date(iso);
+      if (Number.isNaN(date.getTime())) return '--:--:--';
+      return date.toLocaleTimeString();
+    }
+
+    function consumeLiveEvent(event) {
+      const ts = formatTimestamp(event.at);
+      if (event.type === 'phase_start') {
+        appendConsoleLines(`[${ts}] [phase] START ${event.phaseKey || '-'}`);
+        return;
+      }
+      if (event.type === 'phase_end') {
+        appendConsoleLines(`[${ts}] [phase] END ${event.phaseKey || '-'} (${event.ok ? 'ok' : 'failed'})`);
+        return;
+      }
+      if (event.type === 'command_start') {
+        appendConsoleLines(`[${ts}] [cmd] $ ${event.command || ''}`);
+        return;
+      }
+      if (event.type === 'command_end') {
+        appendConsoleLines(`[${ts}] [cmd] exit=${event.exitCode ?? '-'} ${event.ok ? 'ok' : `error: ${event.message || 'unknown'}`}`);
+        return;
+      }
+      if (event.type === 'command_output') {
+        const stream = event.stream || 'stdout';
+        const chunkLines = String(event.chunk || '').split('\n');
+        for (const line of chunkLines) {
+          if (!line) continue;
+          appendConsoleLines(`[${ts}] [${stream}] ${line}`);
+        }
+        return;
+      }
+      const channel = event.type === 'runner_error' ? 'error' : 'info';
+      appendConsoleLines(`[${ts}] [${channel}] ${event.message || '-'}`);
+    }
+
+    function connectLiveLog(id) {
+      if (!id) return;
+      if (liveLogReviewId === id && liveLogSource) return;
+
+      closeLiveLog();
+      clearLiveConsole(`Conectando al stream de la revisión #${id}...`);
+      setLiveConsoleStatus(`Conectando #${id}...`);
+
+      const source = new EventSource(`${apiBase}/api/reviews/${id}/live-log`);
+      liveLogSource = source;
+      liveLogReviewId = id;
+
+      source.onopen = () => {
+        setLiveConsoleStatus(`Conectado a revisión #${id}`);
+      };
+
+      source.onmessage = (message) => {
+        try {
+          const payload = JSON.parse(message.data);
+          consumeLiveEvent(payload);
+        } catch {
+          appendConsoleLines(`[${new Date().toLocaleTimeString()}] [error] Evento SSE inválido`);
+        }
+      };
+
+      source.onerror = () => {
+        setLiveConsoleStatus(`Reconectando revisión #${id}...`);
+      };
     }
 
     async function getActiveSkillCount() {
@@ -437,11 +557,13 @@ import AppLayout from '../../layouts/AppLayout.astro';
     async function loadReview(id) {
       try {
         const detail = await refreshLive(id, { silent: false });
+        connectLiveLog(id);
         editMsg.textContent = detail.status === 'running'
           ? `Revisión #${id} en ejecución. Actualización automática activa.`
           : `Revisión #${id} cargada.`;
       } catch (error) {
         stopPolling();
+        closeLiveLog();
         const message = error instanceof Error ? error.message : `No se encontró la revisión #${id}.`;
         editMsg.textContent = message;
         return;
@@ -579,6 +701,8 @@ import AppLayout from '../../layouts/AppLayout.astro';
 
     clearFormBtn.addEventListener('click', () => {
       stopPolling();
+      closeLiveLog();
+      clearLiveConsole();
       editId.value = '';
       editCandidateName.value = '';
       editGithubUrl.value = '';
@@ -637,5 +761,9 @@ import AppLayout from '../../layouts/AppLayout.astro';
       editId.value = String(initialId);
       loadReview(initialId);
     }
+
+    window.addEventListener('beforeunload', () => {
+      closeLiveLog();
+    });
   </script>
 </AppLayout>
